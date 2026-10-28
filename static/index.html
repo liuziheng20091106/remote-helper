@@ -12,6 +12,7 @@
   <script src="/static/ppt.js" defer></script>
   <script src="/static/touchpad.js" defer></script>
   <script src="/static/music.js" defer></script>
+  <script src="/static/classisland.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -25,6 +26,7 @@
       <button class="nav-item" data-tab="touchpad">触控板</button>
       <button class="nav-item" data-tab="music">点歌</button>
       <button class="nav-item" data-tab="ppt">PPT</button>
+      <button class="nav-item" data-tab="classisland">课表</button>
       <button class="nav-item" data-tab="settings">设置</button>
     </nav>
     <main id="main" tabindex="-1">
@@ -69,6 +71,13 @@
         <div class="section-heading"><h1 id="music-title">点歌</h1><button id="music-refresh" class="secondary">刷新</button></div>
         <article class="card"><p id="music-account" class="muted">尚未读取账号</p><div class="item-actions"><button id="music-import" class="secondary">导入下载目录 cookie.txt</button><button id="music-stop" class="secondary">停止播放</button></div><p id="music-player" role="status">尚未读取播放状态</p><p id="music-error" class="music-error" role="status" hidden></p></article>
         <article class="card"><form id="music-search-form" class="music-search"><label class="sr-only" for="music-query">搜索歌曲</label><input id="music-query" type="search" maxlength="200" placeholder="歌曲、歌手" required autocomplete="off"><button type="submit" class="primary">搜索</button></form><p id="music-results-meta" class="muted" role="status">搜索后点歌</p><div id="music-results" class="item-list"></div><div class="music-pagination"><button id="music-previous" disabled>上一页</button><span id="music-page" class="muted">—</span><button id="music-next" disabled>下一页</button></div></article>
+      </section>
+      <section id="panel-classisland" class="panel" aria-labelledby="ci-title" hidden>
+        <div class="section-heading"><h1 id="ci-title">ClassIsland 2.1</h1><button id="ci-refresh" class="secondary">刷新</button></div>
+        <article class="card"><p id="ci-status" role="status">尚未连接</p><div class="item-actions"><button id="ci-show" disabled>显示主界面</button><button id="ci-hide" disabled>隐藏主界面</button><button id="ci-clear" class="secondary" disabled>清除全部提醒</button></div></article>
+        <article class="card"><form id="ci-offset-form"><label>时间偏移（秒，正数提前）<input id="ci-offset" type="number" min="-86400" max="86400" step="0.1" required value="0"></label><button id="ci-offset-save" type="submit" disabled>设置偏移</button></form></article>
+        <article class="card"><h2 id="ci-plan-name">当前课表</h2><form id="ci-lesson-form"><label>课节<select id="ci-lesson" required disabled></select></label><label>替换科目<select id="ci-subject" required disabled></select></label><button id="ci-lesson-save" type="submit" disabled>临时换课</button></form><p class="muted">仅修改当前日的临时课表，不覆盖原课表。</p></article>
+        <article class="card"><h2>Remote Helper 提醒</h2><form id="ci-notify-form"><label>标题<input id="ci-notify-title" maxlength="100" value="远程提醒" required></label><label>内容<textarea id="ci-notify-message" maxlength="2000" rows="2" required></textarea></label><div class="form-row"><label>显示秒数<input id="ci-notify-duration" type="number" min="1" max="60" value="5" required></label><label class="check-label"><input id="ci-notify-sound" type="checkbox" checked>播放提示音</label></div><button id="ci-notify-send" type="submit" disabled>播放提醒</button></form></article>
       </section>
       <section id="panel-ppt" class="panel" aria-labelledby="ppt-title" hidden>
         <div class="section-heading"><h1 id="ppt-title">PPT</h1><button id="ppt-refresh" class="secondary">刷新状态 / 图片</button></div>

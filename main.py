@@ -35,6 +35,7 @@ from ppt_bridge import PowerPointBridge
 from touchpad_control import TouchpadController
 from music_service import MusicService
 from music_confirmation import MusicConfirmation
+from classisland_bridge import ClassIslandBridge
 
 ROOT = Path(__file__).resolve().parent
 COOKIE = "remote_helper_session"
@@ -289,11 +290,37 @@ class MusicTicketRequest(BaseModel):
     ticket: str = Field(min_length=32, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class ClassIslandOffsetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    seconds: float = Field(ge=-86400, le=86400, strict=True, allow_inf_nan=False)
+
+
+class ClassIslandLessonRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan_id: str = Field(min_length=1, max_length=128)
+    index: int = Field(ge=0, le=1000, strict=True)
+    subject_id: str = Field(min_length=1, max_length=128)
+
+
+class ClassIslandVisibilityRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    visible: bool = Field(strict=True)
+
+
+class ClassIslandNotificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(min_length=1, max_length=100)
+    message: str = Field(min_length=1, max_length=2000)
+    duration_seconds: int = Field(default=5, ge=1, le=60, strict=True)
+    sound: bool = Field(default=True, strict=True)
+
+
 def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> FastAPI:
     store = Store(root)
     logger = make_logger(root)
     controller = WindowsController(root)
     powerpoint = PowerPointBridge(root, logger)
+    classisland = ClassIslandBridge()
     touchpad = TouchpadController(controller)
     music = MusicService(root, logger, cookie_path=music_cookie_path)
     confirmation = MusicConfirmation(music)
@@ -312,6 +339,7 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
             confirmation.close()
             await asyncio.to_thread(touchpad.close)
             await asyncio.to_thread(music.close)
+            await asyncio.to_thread(classisland.close)
             await asyncio.to_thread(runner.shutdown)
             await asyncio.gather(*tunnel.inflight, return_exceptions=True)
             await ppt_start
@@ -320,6 +348,7 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
     app = FastAPI(title="Remote Helper", docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False, lifespan=lifespan)
     app.state.store, app.state.logger, app.state.controller = store, logger, controller
     app.state.powerpoint = powerpoint
+    app.state.classisland = classisland
     app.state.touchpad, app.state.music, app.state.music_confirmation = touchpad, music, confirmation
     runner = ShellRunner(root, logger)
     app.state.shell = runner
@@ -617,6 +646,40 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
         result = confirmation.stop(request.cookies[COOKIE])
         logger.info("music.stopped")
         return {**result, **confirmation.time_state()}
+
+    @app.get("/api/classisland/state")
+    def classisland_state():
+        return classisland.state()
+
+    @app.post("/api/classisland/time-offset")
+    def classisland_offset(body: ClassIslandOffsetRequest):
+        result = classisland.request("set_time_offset", **body.model_dump())
+        logger.info("classisland.time_offset seconds=%s", body.seconds)
+        return result
+
+    @app.post("/api/classisland/lesson")
+    def classisland_lesson(body: ClassIslandLessonRequest):
+        result = classisland.request("change_lesson", **body.model_dump())
+        logger.info("classisland.lesson.changed index=%s", body.index)
+        return result
+
+    @app.post("/api/classisland/visibility")
+    def classisland_visibility(body: ClassIslandVisibilityRequest):
+        result = classisland.request("set_visible", **body.model_dump())
+        logger.info("classisland.visibility visible=%s", body.visible)
+        return result
+
+    @app.post("/api/classisland/notifications/clear")
+    def classisland_clear():
+        result = classisland.request("clear_notifications")
+        logger.info("classisland.notifications.cleared")
+        return result
+
+    @app.post("/api/classisland/notify")
+    def classisland_notify(body: ClassIslandNotificationRequest):
+        result = classisland.request("notify", **body.model_dump())
+        logger.info("classisland.notification.sent")
+        return result
 
     @app.get("/api/ppt/state")
     def ppt_state():

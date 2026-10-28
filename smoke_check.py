@@ -78,6 +78,15 @@ def check():
             request("/r?p=114514")
             assert any(cookie.name == COOKIE and cookie.has_nonstandard_attr("HttpOnly") for cookie in cookies)
             assert request("/api/state")[0] == 200
+            assert request("/api/classisland/state", authenticated=False)[0] == 401
+            ci_status, ci_state, _ = request("/api/classisland/state")
+            assert ci_status == 200 and type(ci_state["connected"]) is bool
+            assert request("/api/classisland/visibility", {"visible": True}, csrf=False)[0] == 403
+            assert request("/api/classisland/visibility", {"visible": "true"})[0] == 422
+            assert request("/api/classisland/time-offset", {"seconds": True})[0] == 422
+            assert request("/api/classisland/time-offset", {"seconds": 86401})[0] == 422
+            assert request("/api/classisland/lesson", {"plan_id": "old", "index": -1, "subject_id": "unknown"})[0] == 422
+            assert request("/api/classisland/notify", {"title": "", "message": "invalid"})[0] == 422
             assert request("/api/music/state", authenticated=False)[0] == 401
             music_status, music_state, _ = request("/api/music/state")
             assert music_status == 200 and not music_state["credentials_loaded"]

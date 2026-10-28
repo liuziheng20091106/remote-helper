@@ -1,0 +1,10 @@
+id: remotehelper.classisland21
+name: Remote Helper 联动
+author: liuziheng20091106
+version: 1.0.0.0
+apiVersion: 2.1.0.0
+entranceAssembly: RemoteHelper.ClassIsland.dll
+description: 为 Remote Helper 提供时间偏移、临时换课、清除提醒、主界面显隐和专属提醒渠道。
+url: https://github.com/liuziheng20091106/remote-helper
+supportedOSPlatforms:
+  - Windows

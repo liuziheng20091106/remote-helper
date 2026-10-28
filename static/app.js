@@ -207,6 +207,7 @@ function selectTab(tab) {
   }
   if (tab === 'ppt') void action(null, refreshPpt);
   if (tab === 'music') void action(null, loadMusicState);
+  if (tab === 'classisland') void action(null, refreshClassIsland);
   if (tab === 'settings' && !logsLoaded) void action($('logs-refresh'), loadLogs);
   // Process enumeration is deliberately tied only to the Refresh button.
 }
