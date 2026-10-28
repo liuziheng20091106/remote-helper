@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#111719">
+  <meta name="referrer" content="no-referrer">
+  <title>Remote Helper</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/app.js" defer></script>
+  <script src="/static/ppt.js" defer></script>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="app-header"><a class="brand" href="/" aria-label="远程助手首页">Remote Helper</a><span id="connection" class="connection"><i></i>正在连接</span></header>
+    <nav class="navigation" aria-label="功能导航">
+      <button class="nav-item active" data-tab="home" aria-current="page">概览</button>
+      <button class="nav-item" data-tab="commands">命令</button>
+      <button class="nav-item" data-tab="tools">工具</button>
+      <button class="nav-item" data-tab="processes">进程</button>
+      <button class="nav-item" data-tab="desktop">桌面</button>
+      <button class="nav-item" data-tab="ppt">PPT</button>
+      <button class="nav-item" data-tab="settings">设置</button>
+    </nav>
+    <main id="main" tabindex="-1">
+      <section id="panel-home" class="panel active" aria-labelledby="home-title">
+        <h1 id="home-title">概览</h1>
+        <article class="card"><h2 id="hostname">连接中…</h2><p id="platform" class="muted"></p><div id="host-details" class="chips"></div></article>
+        <div class="two-column">
+          <article class="card"><div class="card-heading"><h2>音量</h2><output id="volume-value" for="volume">—</output></div><label class="sr-only" for="volume">系统音量</label><input id="volume" type="range" min="0" max="100" value="0" disabled><div class="split"><button id="mute" class="secondary" aria-pressed="false" disabled>静音</button><button id="volume-refresh" class="text-button">刷新</button></div></article>
+          <article class="card"><h2>快捷入口</h2><div class="quick-grid"><button data-open="desktop">查看桌面</button><button data-open="commands">运行命令</button><button data-open="tools">修复工具</button></div></article>
+        </div>
+      </section>
+      <section id="panel-commands" class="panel" aria-labelledby="commands-title" hidden>
+        <h1 id="commands-title">命令</h1>
+        <article class="card"><form id="shell-form"><label for="shell-command">即时命令</label><textarea id="shell-command" rows="3" spellcheck="false" required placeholder="ipconfig"></textarea><div class="form-row"><label>环境<select id="shell-type"><option value="cmd">CMD</option><option value="powershell">PowerShell</option></select></label><label>超时（秒）<input id="shell-timeout" type="number" min="1" max="3600" value="60" required inputmode="numeric"></label></div><button type="submit" class="primary">执行</button></form></article>
+        <article class="card"><div class="card-heading"><h2>快捷命令</h2><button id="command-add" class="secondary">新建</button></div><div id="command-list" class="item-list"><p class="empty">读取中…</p></div></article>
+        <article class="card"><div class="card-heading"><h2>执行结果</h2><button id="output-clear" class="text-button">清空</button></div><p id="command-result-meta" class="muted">尚未执行</p><pre id="command-output" tabindex="0" aria-label="命令输出"></pre></article>
+      </section>
+      <section id="panel-tools" class="panel" aria-labelledby="tools-title" hidden>
+        <div class="section-heading"><h1 id="tools-title">工具</h1><button id="tools-refresh" class="secondary">刷新</button></div><article class="card"><div id="tool-list" class="tool-grid"><p class="empty">尚未读取</p></div></article>
+      </section>
+      <section id="panel-processes" class="panel" aria-labelledby="processes-title" hidden>
+        <div class="section-heading"><h1 id="processes-title">进程</h1><button id="process-refresh" class="primary">刷新进程</button></div>
+        <article class="card"><div class="process-toolbar"><label class="search-label"><span class="sr-only">搜索进程</span><input id="process-search" type="search" placeholder="名称、PID 或路径" autocomplete="off"></label><label class="check-label"><input id="favorites-only" type="checkbox">只看收藏</label></div><p id="process-meta" class="muted">尚未刷新</p><div id="process-list" class="item-list"></div></article>
+      </section>
+      <section id="panel-desktop" class="panel" aria-labelledby="desktop-title" hidden>
+        <h1 id="desktop-title">桌面</h1>
+        <article class="card"><div class="desktop-toolbar"><label>显示器<select id="monitor"><option value="">读取中…</option></select></label><button id="snapshot" class="primary">截图</button><button id="live-toggle" class="secondary" aria-pressed="false">连续画面：关</button></div><p id="snapshot-status" class="muted" role="status">尚未截图</p><div id="desktop-viewport" class="desktop-viewport" tabindex="0" aria-label="远程桌面画面，可滚动平移或点击选取坐标"><div id="desktop-empty" class="desktop-empty">尚无画面</div><img id="desktop-image" alt="远程电脑桌面截图" draggable="false" hidden></div><div class="zoom-row"><label for="desktop-zoom">缩放</label><input id="desktop-zoom" type="range" min="1" max="4" step="0.25" value="1"><output id="zoom-value" for="desktop-zoom">1×</output></div></article>
+        <article class="card"><div class="card-heading"><h2>鼠标</h2><label class="check-label"><input id="click-enabled" type="checkbox">启用画面点击</label></div><label>点击方式<select id="click-kind"><option value="left">左键单击</option><option value="right">右键单击</option><option value="double">左键双击</option><option value="middle">中键单击</option></select></label><p id="click-status" class="muted" role="status">仅选取坐标</p><form id="coordinate-form"><div class="form-row"><label>屏幕 X<input id="coordinate-x" type="number" step="1" value="0" required inputmode="numeric"></label><label>屏幕 Y<input id="coordinate-y" type="number" step="1" value="0" required inputmode="numeric"></label></div><button type="submit" class="secondary">发送坐标点击</button></form></article>
+        <div class="two-column"><article class="card"><h2>按键</h2><div id="key-buttons" class="key-buttons"></div><form id="key-form"><label for="key-chord">组合键（+ 分隔）</label><input id="key-chord" list="key-suggestions" placeholder="ctrl+shift+esc" required autocomplete="off"><datalist id="key-suggestions"></datalist><button type="submit" class="secondary">发送按键</button></form></article><article class="card"><form id="text-form"><label for="desktop-text">输入文字</label><textarea id="desktop-text" rows="3" required></textarea><button type="submit" class="secondary">发送文字</button></form><form id="scroll-form"><label for="scroll-amount">滚轮格数（正数向上）</label><input id="scroll-amount" type="number" min="-100" max="100" step="1" value="-3" required inputmode="numeric"><button type="submit" class="secondary">发送滚动</button></form></article></div>
+      </section>
+      <section id="panel-ppt" class="panel" aria-labelledby="ppt-title" hidden>
+        <div class="section-heading"><h1 id="ppt-title">PPT</h1><button id="ppt-refresh" class="secondary">刷新状态 / 图片</button></div>
+        <article class="card">
+          <h2 id="ppt-name">未读取 PowerPoint</h2><p id="ppt-status" class="muted" role="status">请在电脑上打开演示文稿，然后刷新。</p>
+          <div id="ppt-controls" class="ppt-controls">
+            <button data-ppt-action="previous" disabled>上一页 ←</button><button data-ppt-action="next" disabled>下一页 →</button>
+            <button data-ppt-action="start" disabled>从头 F5</button><button data-ppt-action="start_current" disabled>从当前 Shift+F5</button>
+            <button data-ppt-action="end" disabled>结束 Esc</button><button data-ppt-action="first" disabled>首页 Home</button><button data-ppt-action="last" disabled>末页 End</button><button data-ppt-action="black" disabled>黑屏 B</button><button data-ppt-action="white" disabled>白屏 W</button>
+          </div>
+          <form id="ppt-goto-form" class="ppt-goto"><label for="ppt-page">跳转页码<input id="ppt-page" type="number" min="1" step="1" value="1" required inputmode="numeric" disabled></label><button type="submit" disabled>跳转到电脑</button></form>
+          <details class="ppt-shortcuts"><summary>实际键盘快捷键</summary><p class="muted">发送给电脑当前焦点窗口；请先聚焦 PowerPoint。</p><div id="ppt-key-buttons" class="ppt-controls"></div></details>
+        </article>
+        <article class="card"><h2>固定页面</h2><div id="ppt-pins" class="ppt-pins"><p class="muted">点击缩略图下的「固定」。</p></div></article>
+        <article class="card"><div class="card-heading"><h2>全部幻灯片</h2><span class="muted">点图片仅预览</span></div><div id="ppt-slides" class="ppt-slides"></div></article>
+      </section>
+      <section id="panel-settings" class="panel" aria-labelledby="settings-title" hidden>
+        <h1 id="settings-title">设置</h1>
+        <div class="two-column"><article class="card"><h2>截图设置</h2><form id="settings-form"><label>连续画面间隔（秒）<input id="setting-interval" type="number" min="0.5" max="10" step="0.5" value="2" required inputmode="decimal"></label><label>JPEG 质量（30–90）<input id="setting-quality" type="number" min="30" max="90" value="65" required inputmode="numeric"></label><label>截图宽度（320–2560）<input id="setting-width" type="number" min="320" max="2560" value="1280" required inputmode="numeric"></label><button type="submit" class="primary">保存</button></form></article><article class="card"><h2>连接</h2><p id="session-state" class="muted"></p><div class="item-actions"><button id="state-refresh" class="secondary">刷新连接</button><button id="logout" class="danger">退出登录</button></div></article></div>
+        <article class="card"><h2>远程中继</h2><form id="relay-form"><label class="check-label"><input id="relay-enabled" type="checkbox">启用中继</label><label>远程地址<input id="relay-url" type="url" value="https://super.tkcloud.online:444" required autocomplete="url"></label><label>中继令牌<input id="relay-token" type="password" placeholder="留空保留" autocomplete="new-password" spellcheck="false"></label><p id="relay-status" class="muted" role="status">尚未读取</p><a id="relay-link" href="https://super.tkcloud.online:444/r" target="_blank" rel="noopener noreferrer">远程入口</a><button type="submit" class="primary">保存</button></form></article>
+        <article class="card"><div class="card-heading"><h2>操作日志</h2><button id="logs-refresh" class="secondary">刷新</button></div><pre id="logs-output" tabindex="0" aria-label="服务日志"></pre></article>
+      </section>
+    </main>
+  </div>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button id="notice-close" aria-label="关闭通知">×</button></div>
+  <dialog id="command-dialog" aria-labelledby="command-dialog-title"><form id="command-form"><div class="card-heading"><h2 id="command-dialog-title">新建快捷命令</h2><button type="button" id="command-close" class="quiet" aria-label="关闭">×</button></div><input id="command-id" type="hidden"><label>名称<input id="command-name" maxlength="100" required autocomplete="off"></label><label>命令<textarea id="command-text" rows="4" required spellcheck="false"></textarea></label><div class="form-row"><label>环境<select id="command-shell"><option value="cmd">CMD</option><option value="powershell">PowerShell</option></select></label><label>超时（秒）<input id="command-timeout" type="number" min="1" max="3600" value="60" required></label></div><button type="submit" class="primary">保存</button></form></dialog>
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title"><form method="dialog"><h2 id="confirm-title">确认操作</h2><p id="confirm-message"></p><div class="dialog-actions"><button value="cancel" class="secondary">取消</button><button value="confirm" class="danger" id="confirm-action">确认</button></div></form></dialog>
+  <dialog id="ppt-dialog" aria-labelledby="ppt-preview-title"><div class="card-heading"><h2 id="ppt-preview-title">幻灯片预览</h2><button id="ppt-preview-close" type="button" aria-label="关闭预览">×</button></div><p id="ppt-preview-status" class="muted" role="status"></p><img id="ppt-preview-image" alt="" hidden><div class="ppt-controls"><button id="ppt-preview-prev">上一张预览</button><button id="ppt-preview-next">下一张预览</button><button id="ppt-preview-goto" class="primary">跳转到电脑</button><button id="ppt-preview-pin">固定</button></div></dialog>
+  <dialog id="auth-dialog" aria-labelledby="auth-title"><form id="auth-form"><h2 id="auth-title">连接电脑</h2><label>访问密码<input id="auth-password" type="password" required autocomplete="current-password"></label><button class="primary" type="submit">连接</button></form></dialog>
+  <noscript><p class="noscript">请启用 JavaScript。</p></noscript>
+</body>
+</html>

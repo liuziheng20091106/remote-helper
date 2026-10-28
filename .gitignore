@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+settings.json
+settings.json.tmp
+logs/
+startup-error.log
+/Fix Tools/*
+!/Fix Tools/.gitkeep
+dist/
+*.pptx
+*.ppt
+*.ppsx
