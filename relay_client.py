@@ -43,7 +43,7 @@ def allowed_path(path: str) -> bool:
     decoded = unquote(parsed.path)
     if parsed.scheme or parsed.netloc or parsed.fragment or "\\" in decoded or any(part in {".", ".."} for part in decoded.split("/")):
         return False
-    return decoded in {"/", "/icon.svg"} or decoded.startswith(("/api/", "/static/"))
+    return decoded in {"/r", "/icon.svg"} or decoded.startswith(("/api/", "/static/"))
 
 
 class RelayClient:
@@ -118,7 +118,6 @@ class RelayClient:
         active_ids = set()
         attached = True
         send_lock = asyncio.Lock()
-        transport = httpx.ASGITransport(app=self.app, client=("relay", 0), raise_app_exceptions=False)
 
         async def send(message):
             if not attached:
@@ -133,6 +132,8 @@ class RelayClient:
                 method = message.get("method")
                 if method not in {"GET", "POST", "HEAD"} or not allowed_path(path):
                     raise ValueError("Invalid forwarded target")
+                address = ipaddress.ip_address(message.get("client_ip", ""))
+                client_ip = str(getattr(address, "ipv4_mapped", None) or address)
                 encoded = message.get("body", "")
                 if not isinstance(encoded, str) or len(encoded) > (MAX_BODY + 2) // 3 * 4:
                     raise ValueError("Request body too large")
@@ -150,6 +151,7 @@ class RelayClient:
                     if name.lower() not in HOP_HEADERS:
                         headers.append((name, value))
                 # A fresh cookie jar per request prevents one remote browser inheriting another's login.
+                transport = httpx.ASGITransport(app=self.app, client=(client_ip, 0), raise_app_exceptions=False)
                 async with httpx.AsyncClient(transport=transport, base_url=origin, follow_redirects=False, timeout=None, trust_env=False) as client:
                     response = await client.request(method, path, headers=headers, content=body)
                 data = response.content

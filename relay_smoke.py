@@ -30,7 +30,7 @@ class Server:
         self.socket.bind(("127.0.0.1", 0))
         self.port = self.socket.getsockname()[1]
         options = {"ssl_certfile": str(tls[0]), "ssl_keyfile": str(tls[1])} if tls else {}
-        self.server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_config=None, ws_max_size=12 * 1024 * 1024, timeout_graceful_shutdown=3, **options))
+        self.server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_config=None, proxy_headers=False, ws_max_size=12 * 1024 * 1024, timeout_graceful_shutdown=3, **options))
         self.thread = threading.Thread(target=self.server.run, kwargs={"sockets": [self.socket]}, daemon=True)
 
     def start(self):
@@ -91,9 +91,9 @@ async def check():
                 assert (await browser.get("/_relay/health")).json() == {"online": False}
                 assert (await browser.get("/api/state")).status_code == 503
                 assert (await lan.get("/api/state")).status_code == 401
-                assert (await lan.get("/r")).status_code == 404
-                assert (await lan.get("/")).status_code == 200
-                await lan.get("/?p=114514")
+                assert (await lan.get("/")).status_code == 404
+                assert (await lan.get("/r")).status_code == 200
+                await lan.get("/r?p=114514")
                 assert (await lan.get("/api/state")).status_code == 200
                 configured = await lan.post("/api/relay", json={"enabled": True}, headers=header)
                 assert configured.status_code == 200 and "token" not in configured.json()
@@ -112,8 +112,8 @@ async def check():
                         from websockets.exceptions import ConnectionClosed
                         assert isinstance(error, (InvalidStatus, ConnectionClosed)), type(error)
                 assert (await browser.get("/api/state")).status_code == 401
-                assert (await browser.get("/r")).status_code == 404
-                login = await browser.get("/?p=114514")
+                assert (await browser.get("/")).status_code == 404
+                login = await browser.get("/r?p=114514")
                 assert "location" not in login.headers
                 assert login.status_code == 200
                 cookie = next(item for item in browser.cookies.jar if item.name == "remote_helper_session")
@@ -165,7 +165,7 @@ async def check():
                 browser.cookies.set("remote_helper_session", logged_out_token)
                 assert (await browser.get("/api/state")).status_code == 401
                 browser.cookies.clear()
-                await browser.get("/?p=114514")
+                await browser.get("/r?p=114514")
                 marker = root / "reconnect-command.started"
                 code = f"from pathlib import Path; import time; Path({str(marker)!r}).write_text('started'); time.sleep(10)"
                 pending_command = asyncio.create_task(browser.post("/api/shell", json={"command": subprocess.list2cmdline([str(ROOT / '.venv/Scripts/python.exe'), '-c', code]), "timeout": 30}, headers=mutation_headers))
@@ -192,6 +192,28 @@ async def check():
                     yield b"y" * 70000
                 assert (await browser.post("/api/shell", content=oversized(), headers=mutation_headers)).status_code == 413
                 assert (await browser.get("/settings.json")).status_code == 404
+                # These headers represent Lucky's private upstream connection.
+                async with httpx.AsyncClient(base_url=remote_url, verify=context, trust_env=False, timeout=15) as probe:
+                    first_ip = {"X-Forwarded-For": "198.51.100.9, 203.0.113.10"}
+                    assert (await probe.get("/r?p=wrong", headers=first_ip)).status_code == 401
+                    changed_prefix = {"X-Forwarded-For": "198.51.100.11, 203.0.113.10", "X-Real-IP": "198.51.100.12"}
+                    assert (await probe.get("/r?p=114514", headers={"REALIP": "203.0.113.10", "X-Forwarded-For": "203.0.113.99"})).status_code == 429
+                    assert (await probe.get("/r?p=114514", headers=[("REALIP", "203.0.113.99"), ("REALIP", "203.0.113.10")])).status_code == 429
+                    assert (await probe.get("/r?p=114514", headers={"REALIP": "203.0.113.99, 203.0.113.10"})).status_code == 429
+                    assert (await probe.get("/r?p=114514", headers=changed_prefix)).status_code == 429
+                    assert (await probe.get("/r?p=114514", headers={"X-Real-IP": "203.0.113.10"})).status_code == 429
+                    assert (await probe.get("/api/state")).status_code == 401
+                    assert (await probe.get("/r?p=114514", headers={"X-Forwarded-For": "203.0.113.11"})).status_code == 200
+                    assert (await probe.get("/api/state")).status_code == 200
+                    probe.cookies.clear()
+                    ipv6 = {"X-Forwarded-For": "2001:db8:0:0::5"}
+                    failures = await asyncio.gather(*(probe.get("/r?p=wrong", headers=ipv6) for _ in range(6)))
+                    assert sorted(response.status_code for response in failures) == [401, 429, 429, 429, 429, 429]
+                    assert (await probe.get("/r?p=114514", headers={"X-Forwarded-For": "2001:db8::5"})).status_code == 429
+                    assert (await probe.get("/r?p=wrong", headers={"X-Forwarded-For": "::ffff:203.0.113.12"})).status_code == 401
+                    assert (await probe.get("/r?p=114514", headers={"X-Forwarded-For": "203.0.113.12"})).status_code == 429
+                    assert (await probe.get("/r?p=114514", headers={"X-Forwarded-For": "invalid"})).status_code == 400
+                print("PASS: Lucky REALIP priority, duplicate/list headers, visitor IP through HTTPS/WSS, independent IPs, one-failure concurrent lockout, XFF/X-Real-IP fallback and IPv6/mapped-IPv4 normalization.")
                 print("PASS: actual HTTPS/WSS tunnel, independent agent auth, duplicate rejection, browser cookie isolation/Secure/HttpOnly/logout, Origin/CSRF, real shell and concurrent requests, bytes/headers, persisted settings, pause, disconnect/reconnect, upload bound, LAN stays available.")
         finally:
             pc_app.state.shell.shutdown()

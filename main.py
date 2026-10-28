@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import ctypes
 import hmac
+import ipaddress
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -297,6 +298,7 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
     music = MusicService(root, logger, cookie_path=music_cookie_path)
     confirmation = MusicConfirmation(music)
     sessions: set[str] = set()
+    failed_login_ips: set[str] = set()
     session_lock = threading.Lock()
     @asynccontextmanager
     async def lifespan(application):
@@ -315,7 +317,7 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
             await ppt_start
             await asyncio.to_thread(powerpoint.close)
 
-    app = FastAPI(title="Remote Helper", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app = FastAPI(title="Remote Helper", docs_url=None, redoc_url=None, openapi_url=None, redirect_slashes=False, lifespan=lifespan)
     app.state.store, app.state.logger, app.state.controller = store, logger, controller
     app.state.powerpoint = powerpoint
     app.state.touchpad, app.state.music, app.state.music_confirmation = touchpad, music, confirmation
@@ -327,6 +329,8 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
     @app.middleware("http")
     async def access_control(request: Request, call_next):
         path = request.url.path
+        if path == "/":
+            return Response(status_code=404)
         with session_lock:
             authenticated = request.cookies.get(COOKIE, "") in sessions
         if path.startswith("/api/") and request.method != "GET":
@@ -381,21 +385,27 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
         logger.warning("operation.denied path=%s error=%s", request.url.path, exc)
         return JSONResponse({"detail": str(exc)}, status_code=403)
 
-    @app.get("/")
+    @app.get("/r")
     def remote(request: Request, p: str | None = Query(default=None, max_length=256)):
         response = FileResponse(root / "static/index.html")
         if p is not None:
+            address = ipaddress.ip_address(request.client.host)
+            client_ip = str(getattr(address, "ipv4_mapped", None) or address)
             with session_lock:
                 sessions.discard(request.cookies.get(COOKIE, ""))
-            if not hmac.compare_digest(p.encode("utf-8"), store.snapshot().password.encode("utf-8")):
-                logger.warning("login.failed client=%s", request.client.host if request.client else "?")
-                response.delete_cookie(COOKIE)
-            else:
-                logger.info("login.success client=%s", request.client.host if request.client else "?")
-                session = secrets.token_urlsafe(48)
-                with session_lock:
+                if client_ip in failed_login_ips:
+                    response = JSONResponse({"detail": "该 IP 本次运行期间已登录失败，重启程序前禁止再次登录。"}, status_code=429)
+                elif not hmac.compare_digest(p.encode("utf-8"), store.snapshot().password.encode("utf-8")):
+                    failed_login_ips.add(client_ip)
+                    logger.warning("login.failed client=%s blocked_until_restart=true", client_ip)
+                    response = JSONResponse({"detail": "密码错误。该 IP 在本次程序运行期间已禁止再次登录。"}, status_code=401)
+                else:
+                    logger.info("login.success client=%s", client_ip)
+                    session = secrets.token_urlsafe(48)
                     sessions.add(session)
-                response.set_cookie(COOKIE, session, httponly=True, samesite="strict", secure=request.url.scheme == "https")
+                    response.set_cookie(COOKIE, session, httponly=True, samesite="strict", secure=request.url.scheme == "https")
+                    return response
+            response.delete_cookie(COOKIE)
         return response
 
     @app.get("/icon.svg")
@@ -683,7 +693,7 @@ class Runtime:
     def __init__(self, app: FastAPI):
         self.app = app
         config = app.state.store.snapshot()
-        self.server = uvicorn.Server(uvicorn.Config(app, host=config.host, port=config.port, access_log=False, log_config=None, timeout_graceful_shutdown=5))
+        self.server = uvicorn.Server(uvicorn.Config(app, host=config.host, port=config.port, access_log=False, log_config=None, proxy_headers=False, timeout_graceful_shutdown=5))
         self.thread: threading.Thread | None = None
         self.icon = None
         self.restarting = False
@@ -751,7 +761,7 @@ class Runtime:
         import pystray
         menu = pystray.Menu(
             pystray.MenuItem("Remote Helper · 电脑遥控", None, enabled=False),
-            pystray.MenuItem(f"端口 {config.port} · /?p=访问密码", None, enabled=False),
+            pystray.MenuItem(f"端口 {config.port} · /r?p=访问密码", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(lambda item: "恢复 Web 管理" if self.app.state.store.snapshot().web_paused else "暂停 Web 管理", self.pause),
             pystray.MenuItem("重启程序", self.restart),

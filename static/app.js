@@ -147,7 +147,7 @@ function applyRelay(relay) {
   $('relay-url').value = relay.url;
   $('relay-status').textContent = `${relay.connected ? '已连接' : relay.enabled ? '未连接' : '已关闭'} · ${relay.status} · ${relay.token_configured ? '令牌已配置' : '未配置令牌'}`;
   const url = new URL(relay.url);
-  url.pathname = '/';
+  url.pathname = '/r';
   url.search = '';
   url.hash = '';
   $('relay-link').href = url.href;
@@ -531,7 +531,7 @@ $('auth-dialog').addEventListener('cancel', event => event.preventDefault());
 onSubmit('auth-form', async () => {
   const password = $('auth-password').value;
   $('auth-password').value = '';
-  const target = new URL('/', window.location.origin);
+  const target = new URL('/r', window.location.origin);
   target.searchParams.set('p', password);
   window.location.replace(target.href);
 });

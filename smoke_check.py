@@ -40,7 +40,7 @@ def check():
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
         base = f"http://127.0.0.1:{sock.getsockname()[1]}"
-        server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_config=None))
+        server = uvicorn.Server(uvicorn.Config(app, access_log=False, log_config=None, proxy_headers=False))
         thread = threading.Thread(target=server.run, kwargs={"sockets": [sock]}, daemon=True)
         thread.start()
         deadline = time.monotonic() + 15
@@ -72,12 +72,10 @@ def check():
 
         try:
             assert request("/api/state", authenticated=False)[0] == 401
-            assert request("/r")[0] == 404
-            root_status, _, root_headers = request("/")
-            assert root_status == 200 and "Location" not in root_headers
-            request("/?p=wrong")
-            assert not list(cookies)
-            request("/?p=114514")
+            assert request("/")[0] == 404
+            entry_status, _, entry_headers = request("/r")
+            assert entry_status == 200 and "Location" not in entry_headers
+            request("/r?p=114514")
             assert any(cookie.name == COOKIE and cookie.has_nonstandard_attr("HttpOnly") for cookie in cookies)
             assert request("/api/state")[0] == 200
             assert request("/api/music/state", authenticated=False)[0] == 401
@@ -204,7 +202,8 @@ def check():
                     waiting.start()
                     assert input_arrived.wait(timeout=5), "Touchpad request did not pass authentication before pause"
                     Runtime.pause(runtime)
-                    assert request("/api/state")[0] == 503 and request("/")[0] == 503
+                    assert request("/api/state")[0] == 503 and request("/r")[0] == 503
+                    assert request("/")[0] == 404
                 waiting.join(timeout=5)
                 assert pending_input and pending_input[0][0] == 503
                 assert not sink.buttons, "An already authenticated batch must not press after pause"
@@ -217,7 +216,7 @@ def check():
             old_cookie = next(cookie for cookie in cookies if cookie.name == COOKIE)
             other_cookies = http.cookiejar.CookieJar()
             other_client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(other_cookies))
-            other_client.open(base + "/?p=114514").close()
+            other_client.open(base + "/r?p=114514").close()
             assert next(cookie.value for cookie in other_cookies if cookie.name == COOKIE) != old_cookie.value
             assert request("/api/desktop/touchpad", {"id": "logout", "seq": 1, "events": [{"type": "button", "button": "left", "down": True}]})[0] == 200
             assert sink.buttons == {"left"}
@@ -228,7 +227,7 @@ def check():
             cookies.set_cookie(old_cookie)
             assert request("/api/state")[0] == 401, "Logged-out tokens must be revoked server-side"
             assert other_client.open(base + "/api/state").status == 200
-            request("/?p=114514")
+            request("/r?p=114514")
             marker = root / "active-shell.pid"
             code = f"from pathlib import Path; import os,time; Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)"
             command = subprocess.list2cmdline([sys.executable, "-c", code])

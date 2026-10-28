@@ -3,6 +3,7 @@ import asyncio
 import base64
 import binascii
 import hmac
+import ipaddress
 import json
 import os
 import re
@@ -42,7 +43,7 @@ def filtered_headers(headers, *, response=False):
         if name == b"connection":
             excluded.update(part.strip().lower() for part in value.split(b","))
     if not response:
-        excluded.update({b"host", b"authorization", b"forwarded", b"x-forwarded-host", b"x-forwarded-proto", b"x-forwarded-for"})
+        excluded.update({b"host", b"authorization", b"forwarded", b"x-forwarded-host", b"x-forwarded-proto", b"x-forwarded-for", b"x-real-ip", b"realip"})
     return [(name, value) for name, value in parsed if name not in excluded]
 
 
@@ -128,7 +129,7 @@ def create_app(token=None, public_url=None):
     async def forward(request: Request, path: str):
         nonlocal active
         decoded_path = request.url.path
-        if not (decoded_path in {"/", "/icon.svg"} or decoded_path.startswith(("/static/", "/api/"))) or "\\" in decoded_path or "//" in decoded_path or any(part in {".", ".."} for part in decoded_path.split("/")):
+        if not (decoded_path in {"/r", "/icon.svg"} or decoded_path.startswith(("/static/", "/api/"))) or "\\" in decoded_path or "//" in decoded_path or any(part in {".", ".."} for part in decoded_path.split("/")):
             return Response(status_code=404)
         if request.method not in {"GET", "POST", "HEAD"}:
             return Response(status_code=405, headers={"Allow": "GET, POST, HEAD"})
@@ -140,6 +141,12 @@ def create_app(token=None, public_url=None):
         future = asyncio.get_running_loop().create_future()
         pending[identifier] = future
         try:
+            # Lucky appends REALIP on this private upstream. Ignore any earlier
+            # visitor-supplied values, including repeated or comma-joined headers.
+            forwarded = request.headers.getlist("realip") or request.headers.getlist("x-forwarded-for") or request.headers.getlist("x-real-ip")
+            client_ip = forwarded[-1].rsplit(",", 1)[-1].strip() if forwarded else request.client.host
+            address = ipaddress.ip_address(client_ip)
+            client_ip = str(getattr(address, "ipv4_mapped", None) or address)
             body = bytearray()
             async with asyncio.timeout(30):
                 async for chunk in request.stream():
@@ -155,7 +162,7 @@ def create_app(token=None, public_url=None):
             query = request.scope.get("query_string", b"").decode("ascii")
             if query:
                 target += "?" + query
-            message = {"type": "request", "id": identifier, "method": request.method, "path": target,
+            message = {"type": "request", "id": identifier, "method": request.method, "path": target, "client_ip": client_ip,
                        "headers": [[name.decode("ascii"), value.decode("latin-1")] for name, value in headers],
                        "body": base64.b64encode(body).decode("ascii")}
             timeout = 3615 if decoded_path == "/api/shell" or decoded_path.startswith("/api/commands/") and decoded_path.endswith("/run") else 30
