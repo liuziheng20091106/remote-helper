@@ -54,14 +54,13 @@
       <section id="panel-ppt" class="panel" aria-labelledby="ppt-title" hidden>
         <div class="section-heading"><h1 id="ppt-title">PPT</h1><button id="ppt-refresh" class="secondary">刷新状态 / 图片</button></div>
         <article class="card">
-          <h2 id="ppt-name">未读取 PowerPoint</h2><p id="ppt-status" class="muted" role="status">请在电脑上打开演示文稿，然后刷新。</p>
+          <h2 id="ppt-name">未读取 PowerPoint</h2><p id="ppt-module-status" class="muted" role="status">PPT 模块未连接</p><p id="ppt-status" class="muted" role="status">请在电脑上打开演示文稿，然后刷新。</p>
           <div id="ppt-controls" class="ppt-controls">
             <button data-ppt-action="previous" disabled>上一页 ←</button><button data-ppt-action="next" disabled>下一页 →</button>
             <button data-ppt-action="start" disabled>从头 F5</button><button data-ppt-action="start_current" disabled>从当前 Shift+F5</button>
             <button data-ppt-action="end" disabled>结束 Esc</button><button data-ppt-action="first" disabled>首页 Home</button><button data-ppt-action="last" disabled>末页 End</button><button data-ppt-action="black" disabled>黑屏 B</button><button data-ppt-action="white" disabled>白屏 W</button>
           </div>
           <form id="ppt-goto-form" class="ppt-goto"><label for="ppt-page">跳转页码<input id="ppt-page" type="number" min="1" step="1" value="1" required inputmode="numeric" disabled></label><button type="submit" disabled>跳转到电脑</button></form>
-          <details class="ppt-shortcuts"><summary>实际键盘快捷键</summary><p class="muted">发送给电脑当前焦点窗口；请先聚焦 PowerPoint。</p><div id="ppt-key-buttons" class="ppt-controls"></div></details>
         </article>
         <article class="card"><h2>固定页面</h2><div id="ppt-pins" class="ppt-pins"><p class="muted">点击缩略图下的「固定」。</p></div></article>
         <article class="card"><div class="card-heading"><h2>全部幻灯片</h2><span class="muted">点图片仅预览</span></div><div id="ppt-slides" class="ppt-slides"></div></article>

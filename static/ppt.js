@@ -29,7 +29,7 @@ function clearPptImages() {
   $('ppt-preview-image').removeAttribute('src');
 }
 
-function resetPpt(message = '请刷新 PowerPoint 状态。') {
+function resetPpt(message = '请刷新 PowerPoint 状态。', moduleConnected = false) {
   pptRequest++;
   clearPptImages();
   pptState = null;
@@ -37,6 +37,7 @@ function resetPpt(message = '请刷新 PowerPoint 状态。') {
   pptPreview = 0;
   if ($('ppt-dialog').open) $('ppt-dialog').close();
   $('ppt-name').textContent = '未连接 PowerPoint';
+  $('ppt-module-status').textContent = moduleConnected ? 'PPT 模块已连接 · 普通权限' : 'PPT 模块未连接';
   $('ppt-status').textContent = message;
   $('ppt-slides').replaceChildren();
   renderPptPins();
@@ -173,8 +174,9 @@ function renderPptSlides() {
 }
 
 function applyPptState(state, refreshImages) {
+  $('ppt-module-status').textContent = state.module_connected ? 'PPT 模块已连接 · 普通权限' : 'PPT 模块未连接';
   if (!state.available) {
-    resetPpt(state.message || '没有可用的 PowerPoint 演示文稿，请在电脑上打开后刷新。');
+    resetPpt(state.message || '没有可用的 PowerPoint 演示文稿，请在电脑上打开后刷新。', state.module_connected);
     return;
   }
   const changedDeck = pptState?.deck_id !== state.deck_id;
@@ -266,17 +268,6 @@ for (const [id, direction] of [['ppt-preview-prev', -1], ['ppt-preview-next', 1]
 }
 $('ppt-preview-goto').addEventListener('click', () => { void action(null, () => gotoPpt(pptPreview)); });
 onClick('ppt-preview-pin', async () => togglePptPin(pptPreview));
-for (const [label, chord] of [['F5', ['f5']], ['Shift+F5', ['shift', 'f5']], ['Esc', ['esc']], ['←', ['left']], ['→', ['right']], ['Home', ['home']], ['End', ['end']], ['B', ['b']], ['W', ['w']]]) {
-  const button = element('button', 'secondary', label);
-  button.addEventListener('click', () => { void action(button, async () => {
-    if (!availableKeys.length) availableKeys = (await api('/api/desktop/info')).keys;
-    const keys = chord.map(key => availableKeys.find(value => value.toLowerCase() === key));
-    if (keys.some(key => !key)) throw new Error('电脑不支持此快捷键。');
-    await api('/api/desktop/key', {keys});
-    $('ppt-status').textContent = `已发送 ${label}；可刷新读取当前状态。`;
-  }); });
-  $('ppt-key-buttons').append(button);
-}
 window.addEventListener('pagehide', clearPptImages);
 window.addEventListener('pageshow', event => {
   if (event.persisted && activeTab === 'ppt' && authenticated) void action(null, refreshPpt);

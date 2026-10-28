@@ -11,3 +11,5 @@ dist/
 *.pptx
 *.ppt
 *.ppsx
+.ppt-helper.json
+.ppt-helper.*.tmp

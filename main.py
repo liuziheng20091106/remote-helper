@@ -30,7 +30,7 @@ import uvicorn
 
 from windows_control import WindowsController
 from relay_client import DEFAULT_RELAY_URL, RelayClient, relay_url
-from powerpoint_control import PowerPointController
+from ppt_bridge import PowerPointBridge
 
 ROOT = Path(__file__).resolve().parent
 COOKIE = "remote_helper_session"
@@ -271,11 +271,12 @@ def create_app(root: Path = ROOT) -> FastAPI:
     store = Store(root)
     logger = make_logger(root)
     controller = WindowsController(root)
-    powerpoint = PowerPointController(root)
+    powerpoint = PowerPointBridge(root, logger)
     sessions: set[str] = set()
     session_lock = threading.Lock()
     @asynccontextmanager
     async def lifespan(application):
+        ppt_start = asyncio.create_task(asyncio.to_thread(powerpoint.start), name="ppt-helper-start")
         task = asyncio.create_task(tunnel.run(), name="outbound-relay")
         try:
             yield
@@ -284,6 +285,7 @@ def create_app(root: Path = ROOT) -> FastAPI:
             await asyncio.gather(task, return_exceptions=True)
             await asyncio.to_thread(runner.shutdown)
             await asyncio.gather(*tunnel.inflight, return_exceptions=True)
+            await ppt_start
             await asyncio.to_thread(powerpoint.close)
 
     app = FastAPI(title="Remote Helper", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)

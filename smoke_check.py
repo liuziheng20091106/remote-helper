@@ -139,6 +139,7 @@ def check():
             assert request("/api/ppt/state", authenticated=False)[0] == 401
             status, ppt, _ = request("/api/ppt/state")
             assert status == 200 and isinstance(ppt["available"], bool)
+            assert type(ppt["module_connected"]) is bool and ppt["module_elevated"] is False
             assert request("/api/ppt/action", {"action": "next"}, csrf=False)[0] == 403
             assert request("/api/ppt/action", {"action": "not-an-action"})[0] == 422
             assert request("/api/ppt/goto", {"slide": 0, "deck": "old"})[0] == 422
@@ -147,7 +148,7 @@ def check():
                 assert request("/api/ppt/action", {"action": "start_current"})[0] == 409
                 assert request("/api/ppt/slides/1?deck=old")[0] == 409
                 assert request("/api/ppt/goto", {"slide": 1, "deck": "old"})[0] == 409
-                print("SKIP live PPT export/show: PowerPoint unavailable; verified real COM unavailable and protected API responses.")
+                print("SKIP live PPT export/show: module or PowerPoint unavailable; verified explicit status and protected API errors.")
             else:
                 assert 1 <= ppt["current_slide"] <= len(ppt["slides"])
                 status, image, _ = request(f'/api/ppt/slides/1?deck={ppt["deck_id"]}&size=thumb')

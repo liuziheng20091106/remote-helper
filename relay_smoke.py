@@ -118,6 +118,8 @@ async def check():
                 assert state["hostname"] and "token" not in state["relay"]
                 ppt = await browser.get("/api/ppt/state")
                 assert ppt.status_code == 200 and isinstance(ppt.json()["available"], bool)
+                assert type(ppt.json()["module_connected"]) is bool
+                assert ppt.json()["module_elevated"] is False
                 assert (await browser.post("/api/ppt/action", json={"action": "next"})).status_code == 403
                 if not ppt.json()["available"]:
                     missing = await browser.post("/api/ppt/goto", json={"slide": 1, "deck": "old"}, headers={**header, "Origin": remote_url})
