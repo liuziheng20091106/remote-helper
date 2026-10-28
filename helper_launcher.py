@@ -13,46 +13,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 TOKEN_QUERY = 0x0008
-TOKEN_DUPLICATE = 0x0002
-TOKEN_ASSIGN_PRIMARY = 0x0001
 TOKEN_SESSION_ID = 12
 TOKEN_ELEVATION = 20
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 CREATE_NO_WINDOW = 0x08000000
-CREATE_UNICODE_ENVIRONMENT = 0x00000400
-LOGON_WITH_PROFILE = 1
-
-
-class STARTUPINFOW(ctypes.Structure):
-    _fields_ = [
-        ("cb", wintypes.DWORD),
-        ("lpReserved", wintypes.LPWSTR),
-        ("lpDesktop", wintypes.LPWSTR),
-        ("lpTitle", wintypes.LPWSTR),
-        ("dwX", wintypes.DWORD),
-        ("dwY", wintypes.DWORD),
-        ("dwXSize", wintypes.DWORD),
-        ("dwYSize", wintypes.DWORD),
-        ("dwXCountChars", wintypes.DWORD),
-        ("dwYCountChars", wintypes.DWORD),
-        ("dwFillAttribute", wintypes.DWORD),
-        ("dwFlags", wintypes.DWORD),
-        ("wShowWindow", wintypes.WORD),
-        ("cbReserved2", wintypes.WORD),
-        ("lpReserved2", ctypes.POINTER(wintypes.BYTE)),
-        ("hStdInput", wintypes.HANDLE),
-        ("hStdOutput", wintypes.HANDLE),
-        ("hStdError", wintypes.HANDLE),
-    ]
-
-
-class PROCESS_INFORMATION(ctypes.Structure):
-    _fields_ = [
-        ("hProcess", wintypes.HANDLE),
-        ("hThread", wintypes.HANDLE),
-        ("dwProcessId", wintypes.DWORD),
-        ("dwThreadId", wintypes.DWORD),
-    ]
 
 
 class _Windows:
@@ -60,7 +24,6 @@ class _Windows:
         self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self.advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
         self.user32 = ctypes.WinDLL("user32", use_last_error=True)
-        self.userenv = ctypes.WinDLL("userenv", use_last_error=True)
         self.kernel32.GetCurrentProcess.argtypes = []
         self.kernel32.GetCurrentProcess.restype = wintypes.HANDLE
         self.kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
@@ -76,29 +39,12 @@ class _Windows:
             ctypes.POINTER(wintypes.DWORD),
         ]
         self.advapi32.GetTokenInformation.restype = wintypes.BOOL
-        self.advapi32.DuplicateTokenEx.argtypes = [
-            wintypes.HANDLE, wintypes.DWORD, wintypes.LPVOID, ctypes.c_int,
-            ctypes.c_int, ctypes.POINTER(wintypes.HANDLE),
-        ]
-        self.advapi32.DuplicateTokenEx.restype = wintypes.BOOL
-        self.advapi32.CreateProcessWithTokenW.argtypes = [
-            wintypes.HANDLE, wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPWSTR,
-            wintypes.DWORD, wintypes.LPVOID, wintypes.LPCWSTR,
-            ctypes.POINTER(STARTUPINFOW), ctypes.POINTER(PROCESS_INFORMATION),
-        ]
-        self.advapi32.CreateProcessWithTokenW.restype = wintypes.BOOL
         self.user32.GetShellWindow.argtypes = []
         self.user32.GetShellWindow.restype = wintypes.HWND
         self.user32.GetWindowThreadProcessId.argtypes = [
             wintypes.HWND, ctypes.POINTER(wintypes.DWORD),
         ]
         self.user32.GetWindowThreadProcessId.restype = wintypes.DWORD
-        self.userenv.CreateEnvironmentBlock.argtypes = [
-            ctypes.POINTER(wintypes.LPVOID), wintypes.HANDLE, wintypes.BOOL,
-        ]
-        self.userenv.CreateEnvironmentBlock.restype = wintypes.BOOL
-        self.userenv.DestroyEnvironmentBlock.argtypes = [wintypes.LPVOID]
-        self.userenv.DestroyEnvironmentBlock.restype = wintypes.BOOL
 
     @staticmethod
     def require(result, operation):
@@ -123,6 +69,30 @@ class _Windows:
         if length.value != ctypes.sizeof(value):
             raise RuntimeError("Windows returned unexpected token information.")
         return value.value
+
+
+def _launch_from_desktop(command, shell_hwnd):
+    """Ask the existing Explorer process, rather than an elevated Shell.Application."""
+    import comtypes
+    from comtypes.client import CreateObject
+
+    shell = windows = desktop = document = application = None
+    comtypes.CoInitialize()
+    try:
+        shell = CreateObject("Shell.Application", dynamic=True)
+        windows = shell.Windows()
+        # SWC_DESKTOP=8, SWFO_NEEDDISPATCH=1; works without any folder window open.
+        desktop = windows.FindWindowSW(0, 0, 8, 0, 1)
+        if desktop is None or int(desktop.HWND) != shell_hwnd:
+            raise RuntimeError("无法获取当前 Explorer 桌面启动接口。")
+        document = desktop.Document
+        application = document.Application
+        application.ShellExecute(command[0], subprocess.list2cmdline(command[1:]), str(ROOT), "open", 0)
+    except comtypes.COMError as error:
+        raise RuntimeError("Explorer 桌面启动失败，请确认桌面可交互且模块目录可访问。") from error
+    finally:
+        application = document = desktop = windows = shell = None
+        comtypes.CoUninitialize()
 
 
 def start_helper(root: Path) -> None:
@@ -156,40 +126,16 @@ def start_helper(root: Path) -> None:
             process = windows.require(windows.kernel32.OpenProcess(
                 PROCESS_QUERY_LIMITED_INFORMATION, False, shell_pid.value), "OpenProcess(Explorer)")
             stack.callback(windows.kernel32.CloseHandle, process)
-            shell_token = windows.token(process, TOKEN_QUERY | TOKEN_DUPLICATE, stack)
+            shell_token = windows.token(process, TOKEN_QUERY, stack)
             if windows.token_dword(shell_token, TOKEN_SESSION_ID) != session:
                 raise RuntimeError("Explorer belongs to a different Windows session.")
             if windows.token_dword(shell_token, TOKEN_ELEVATION):
                 raise RuntimeError("Explorer is elevated; refusing to start an elevated helper.")
-            primary = wintypes.HANDLE()
-            windows.require(windows.advapi32.DuplicateTokenEx(
-                shell_token, TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
-                None, 2, 1, ctypes.byref(primary)), "DuplicateTokenEx")
-            stack.callback(windows.kernel32.CloseHandle, primary)
-            if (windows.token_dword(primary, TOKEN_ELEVATION)
-                    or windows.token_dword(primary, TOKEN_SESSION_ID) != session):
-                raise RuntimeError("The duplicated Explorer token is not a non-elevated session token.")
-            environment = wintypes.LPVOID()
-            windows.require(windows.userenv.CreateEnvironmentBlock(
-                ctypes.byref(environment), primary, False), "CreateEnvironmentBlock")
-            stack.callback(windows.userenv.DestroyEnvironmentBlock, environment)
-            startup = STARTUPINFOW()
-            startup.cb = ctypes.sizeof(startup)
-            startup.lpDesktop = "winsta0\\default"
-            information = PROCESS_INFORMATION()
-            command_line = ctypes.create_unicode_buffer(subprocess.list2cmdline(command))
-            windows.require(windows.advapi32.CreateProcessWithTokenW(
-                primary, LOGON_WITH_PROFILE, executable, command_line,
-                CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT, environment,
-                str(ROOT), ctypes.byref(startup), ctypes.byref(information)),
-                "CreateProcessWithTokenW")
-            stack.callback(windows.kernel32.CloseHandle, information.hProcess)
-            stack.callback(windows.kernel32.CloseHandle, information.hThread)
+            _launch_from_desktop(command, shell)
     except (OSError, RuntimeError) as error:
         raise RuntimeError(
-            f"Cannot start the non-elevated PowerPoint helper: {error} "
-            "Run Start-PPT.bat normally from the interactive Windows desktop, "
-            "not with Run as administrator. No elevated fallback was started."
+            f"无法自动启动普通权限 PPT 模块：{error} "
+            "请在 PowerPoint 所在桌面正常运行 Start-PPT.bat。程序不会启动管理员权限模块。"
         ) from error
 
 
