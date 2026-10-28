@@ -13,6 +13,7 @@
   <script src="/static/touchpad.js" defer></script>
   <script src="/static/music.js" defer></script>
   <script src="/static/classisland.js" defer></script>
+  <script src="/static/icc.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -27,6 +28,7 @@
       <button class="nav-item" data-tab="music">点歌</button>
       <button class="nav-item" data-tab="ppt">PPT</button>
       <button class="nav-item" data-tab="classisland">课表</button>
+      <button class="nav-item" data-tab="icc">ICC</button>
       <button class="nav-item" data-tab="settings">设置</button>
     </nav>
     <main id="main" tabindex="-1">
@@ -71,6 +73,11 @@
         <div class="section-heading"><h1 id="music-title">点歌</h1><button id="music-refresh" class="secondary">刷新</button></div>
         <article class="card"><p id="music-account" class="muted">尚未读取账号</p><div class="item-actions"><button id="music-import" class="secondary">导入下载目录 cookie.txt</button><button id="music-stop" class="secondary">停止播放</button></div><p id="music-player" role="status">尚未读取播放状态</p><p id="music-error" class="music-error" role="status" hidden></p></article>
         <article class="card"><form id="music-search-form" class="music-search"><label class="sr-only" for="music-query">搜索歌曲</label><input id="music-query" type="search" maxlength="200" placeholder="歌曲、歌手" required autocomplete="off"><button type="submit" class="primary">搜索</button></form><p id="music-results-meta" class="muted" role="status">搜索后点歌</p><div id="music-results" class="item-list"></div><div class="music-pagination"><button id="music-previous" disabled>上一页</button><span id="music-page" class="muted">—</span><button id="music-next" disabled>下一页</button></div></article>
+      </section>
+      <section id="panel-icc" class="panel" aria-labelledby="icc-title" hidden>
+        <div class="section-heading"><h1 id="icc-title">ICC 快捷调用</h1><button id="icc-refresh" class="secondary">刷新</button></div>
+        <article class="card"><p id="icc-status" class="muted" role="status">尚未读取 ICC 协议状态</p><label class="sr-only" for="icc-search">筛选 ICC 操作</label><input id="icc-search" type="search" placeholder="筛选操作" autocomplete="off"><p id="icc-result" class="muted" role="status">按最近调用时间排序</p><div id="icc-actions" class="tool-grid"></div></article>
+        <article class="card"><details id="icc-custom"><summary>带参数的 ICC URI</summary><form id="icc-uri-form"><label>ICC URI<input id="icc-uri" type="text" maxlength="2048" placeholder="icc://config-profile/switch?name=方案名" required spellcheck="false" autocomplete="off" list="icc-uri-examples"></label><datalist id="icc-uri-examples"><option value="icc://config-profile/switch?name="></option><option value="icc://freeze?page=0"></option><option value="icc://settings/CanvasPage?key=inkFadeSpeedMultiplier"></option><option value="icc://plugin/"></option></datalist><button type="submit">调用</button></form><p class="muted">成功派发后加入上方快捷列表。page 为 0–100，省略时使用 ICC 当前页。查询类操作由 ICC 写入其临时目录，不在此读取。</p></details></article>
       </section>
       <section id="panel-classisland" class="panel" aria-labelledby="ci-title" hidden>
         <div class="section-heading"><h1 id="ci-title">ClassIsland 2.1</h1><button id="ci-refresh" class="secondary">刷新</button></div>

@@ -124,6 +124,10 @@ async def check():
                 assert ci.status_code == 200 and type(ci.json()["connected"]) is bool
                 assert (await browser.post("/api/classisland/visibility", json={"visible": True})).status_code == 403
                 assert (await browser.post("/api/classisland/time-offset", json={"seconds": True}, headers={**header, "Origin": remote_url})).status_code == 422
+                icc = await browser.get("/api/icc")
+                assert icc.status_code == 200 and type(icc.json()["registered"]) is bool
+                assert (await browser.post("/api/icc/launch", json={"uri": "icc://timer"})).status_code == 403
+                assert (await browser.post("/api/icc/launch", json={"uri": "https://example.com"}, headers={**header, "Origin": remote_url})).status_code == 400
                 music_state = await browser.get("/api/music/state")
                 assert music_state.status_code == 200 and not music_state.json()["credentials_loaded"]
                 assert music_state.json()["confirmation_seconds"] in (5, 50)

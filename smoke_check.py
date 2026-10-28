@@ -87,6 +87,14 @@ def check():
             assert request("/api/classisland/time-offset", {"seconds": 86401})[0] == 422
             assert request("/api/classisland/lesson", {"plan_id": "old", "index": -1, "subject_id": "unknown"})[0] == 422
             assert request("/api/classisland/notify", {"title": "", "message": "invalid"})[0] == 422
+            assert request("/api/icc", authenticated=False)[0] == 401
+            icc_status, icc_state, _ = request("/api/icc")
+            assert icc_status == 200 and type(icc_state["registered"]) is bool
+            assert request("/api/icc/launch", {"uri": "icc://timer"}, csrf=False)[0] == 403
+            assert request("/api/icc/launch", {"uri": "https://example.com"})[0] == 400
+            assert request("/api/icc/launch", {"uri": "icc://freeze?page=101"})[0] == 400
+            assert request("/api/icc/launch", {"uri": True})[0] == 422
+            assert not app.state.store.snapshot().icc_recent
             assert request("/api/music/state", authenticated=False)[0] == 401
             music_status, music_state, _ = request("/api/music/state")
             assert music_status == 200 and not music_state["credentials_loaded"]

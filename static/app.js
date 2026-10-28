@@ -51,6 +51,7 @@ function showAuth() {
   if (typeof stopTouchpad === 'function') stopTouchpad();
   if (typeof resetMusic === 'function') resetMusic();
   if (typeof resetPpt === 'function') resetPpt('需要登录后刷新 PowerPoint。');
+  if (typeof resetIcc === 'function') resetIcc();
   if (frameURL) { URL.revokeObjectURL(frameURL); frameURL = null; }
   frameGeometry = null;
   $('desktop-image').hidden = true;
@@ -208,6 +209,7 @@ function selectTab(tab) {
   if (tab === 'ppt') void action(null, refreshPpt);
   if (tab === 'music') void action(null, loadMusicState);
   if (tab === 'classisland') void action(null, refreshClassIsland);
+  if (tab === 'icc') void action(null, refreshIcc);
   if (tab === 'settings' && !logsLoaded) void action($('logs-refresh'), loadLogs);
   // Process enumeration is deliberately tied only to the Refresh button.
 }

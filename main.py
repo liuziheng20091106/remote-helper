@@ -20,7 +20,7 @@ import threading
 import time
 from collections import deque
 from contextlib import asynccontextmanager
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
@@ -36,6 +36,7 @@ from touchpad_control import TouchpadController
 from music_service import MusicService
 from music_confirmation import MusicConfirmation
 from classisland_bridge import ClassIslandBridge
+from icc_control import IccController
 
 ROOT = Path(__file__).resolve().parent
 COOKIE = "remote_helper_session"
@@ -89,6 +90,7 @@ class Configuration(BaseModel):
     relay: RelaySettings = Field(default_factory=RelaySettings)
     commands: list[SavedCommand] = Field(default_factory=list)
     favorites: list[str] = Field(default_factory=list)
+    icc_recent: dict[str, Annotated[int, Field(ge=1, le=9007199254740991, strict=True)]] = Field(default_factory=dict, max_length=128)
 
 
 class Store:
@@ -290,6 +292,11 @@ class MusicTicketRequest(BaseModel):
     ticket: str = Field(min_length=32, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class IccLaunchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    uri: str = Field(min_length=1, max_length=2048, strict=True)
+
+
 class ClassIslandOffsetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     seconds: float = Field(ge=-86400, le=86400, strict=True, allow_inf_nan=False)
@@ -321,6 +328,7 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
     controller = WindowsController(root)
     powerpoint = PowerPointBridge(root, logger)
     classisland = ClassIslandBridge()
+    icc = IccController(store)
     touchpad = TouchpadController(controller)
     music = MusicService(root, logger, cookie_path=music_cookie_path)
     confirmation = MusicConfirmation(music)
@@ -349,6 +357,7 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
     app.state.store, app.state.logger, app.state.controller = store, logger, controller
     app.state.powerpoint = powerpoint
     app.state.classisland = classisland
+    app.state.icc = icc
     app.state.touchpad, app.state.music, app.state.music_confirmation = touchpad, music, confirmation
     runner = ShellRunner(root, logger)
     app.state.shell = runner
@@ -529,6 +538,16 @@ def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> F
     def launch(shortcut_id: str):
         result = controller.launch_shortcut(shortcut_id)
         logger.info("shortcut.launched name=%r path=%r", result.get("name"), result.get("path"))
+        return result
+
+    @app.get("/api/icc")
+    def icc_shortcuts():
+        return icc.state()
+
+    @app.post("/api/icc/launch")
+    def icc_launch(body: IccLaunchRequest):
+        result = icc.launch(body.uri)
+        logger.info("icc.dispatched command=%s", result["dispatched_uri"].split("?", 1)[0])
         return result
 
     @app.get("/api/volume")
