@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageDraw
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -31,6 +31,9 @@ import uvicorn
 from windows_control import WindowsController
 from relay_client import DEFAULT_RELAY_URL, RelayClient, relay_url
 from ppt_bridge import PowerPointBridge
+from touchpad_control import TouchpadController
+from music_service import MusicService
+from music_confirmation import MusicConfirmation
 
 ROOT = Path(__file__).resolve().parent
 COOKIE = "remote_helper_session"
@@ -267,11 +270,32 @@ class PPTGotoRequest(BaseModel):
     deck: str = Field(min_length=1, max_length=128)
 
 
-def create_app(root: Path = ROOT) -> FastAPI:
+class TouchpadRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    seq: int = Field(ge=0, le=9007199254740991, strict=True)
+    events: list[dict] = Field(default_factory=list, max_length=64)
+    release: bool = Field(default=False, strict=True)
+
+
+class MusicPrepareRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    song_id: int = Field(gt=0, le=2**63 - 1, strict=True)
+
+
+class MusicTicketRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    ticket: str = Field(min_length=32, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+def create_app(root: Path = ROOT, *, music_cookie_path: Path | None = None) -> FastAPI:
     store = Store(root)
     logger = make_logger(root)
     controller = WindowsController(root)
     powerpoint = PowerPointBridge(root, logger)
+    touchpad = TouchpadController(controller)
+    music = MusicService(root, logger, cookie_path=music_cookie_path)
+    confirmation = MusicConfirmation(music)
     sessions: set[str] = set()
     session_lock = threading.Lock()
     @asynccontextmanager
@@ -283,6 +307,9 @@ def create_app(root: Path = ROOT) -> FastAPI:
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
+            confirmation.close()
+            await asyncio.to_thread(touchpad.close)
+            await asyncio.to_thread(music.close)
             await asyncio.to_thread(runner.shutdown)
             await asyncio.gather(*tunnel.inflight, return_exceptions=True)
             await ppt_start
@@ -291,6 +318,7 @@ def create_app(root: Path = ROOT) -> FastAPI:
     app = FastAPI(title="Remote Helper", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
     app.state.store, app.state.logger, app.state.controller = store, logger, controller
     app.state.powerpoint = powerpoint
+    app.state.touchpad, app.state.music, app.state.music_confirmation = touchpad, music, confirmation
     runner = ShellRunner(root, logger)
     app.state.shell = runner
     tunnel = RelayClient(app, store, logger)
@@ -316,7 +344,7 @@ def create_app(root: Path = ROOT) -> FastAPI:
             return JSONResponse({"detail": "Web 管理已暂停，请从电脑托盘恢复。"}, status_code=503)
         if path.startswith("/api/"):
             if not authenticated:
-                return JSONResponse({"detail": "请使用 /r?p=访问密码 登录。"}, status_code=401)
+                return JSONResponse({"detail": "请输入访问密码登录。"}, status_code=401)
             if request.method != "GET":
                 origin = request.headers.get("origin")
                 expected = f"{request.url.scheme}://{request.url.netloc}"
@@ -354,10 +382,6 @@ def create_app(root: Path = ROOT) -> FastAPI:
         return JSONResponse({"detail": str(exc)}, status_code=403)
 
     @app.get("/")
-    def home():
-        return RedirectResponse("/r", status_code=302)
-
-    @app.get("/r")
     def remote(request: Request, p: str | None = Query(default=None, max_length=256)):
         response = FileResponse(root / "static/index.html")
         if p is not None:
@@ -532,6 +556,58 @@ def create_app(root: Path = ROOT) -> FastAPI:
         logger.info("desktop.scroll amount=%s", body.amount)
         return result
 
+    @app.post("/api/desktop/touchpad")
+    def touchpad_input(request: Request, body: TouchpadRequest):
+        with controller._input_lock:
+            with session_lock:
+                if request.cookies[COOKIE] not in sessions:
+                    raise HTTPException(401, "请输入访问密码登录。")
+            if store.snapshot().web_paused:
+                raise HTTPException(503, "Web 管理已暂停，请从电脑托盘恢复。")
+            owner = request.cookies[COOKIE] + ":" + body.id
+            return touchpad.apply(owner, body.seq, body.events, body.release)
+
+    def music_state():
+        return {**music.state(), **confirmation.time_state()}
+
+    @app.get("/api/music/state")
+    def get_music_state():
+        return music_state()
+
+    @app.get("/api/music/search")
+    def music_search(q: str = Query(min_length=1, max_length=200), offset: int = Query(default=0, ge=0, le=10000), limit: int = Query(default=20, ge=1, le=50)):
+        return music.search(q, offset, limit)
+
+    @app.post("/api/music/import")
+    def music_import():
+        result = music.import_credentials()
+        logger.info("music.credentials.imported cookies=%s", result.get("cookie_count", 0))
+        return {**result, **confirmation.time_state()}
+
+    @app.post("/api/music/prepare")
+    def music_prepare(request: Request, body: MusicPrepareRequest):
+        return confirmation.prepare(request.cookies[COOKIE], body.song_id)
+
+    @app.get("/api/music/confirmation/{ticket}")
+    def music_confirmation_status(request: Request, ticket: str):
+        return confirmation.status(request.cookies[COOKIE], ticket)
+
+    @app.post("/api/music/confirm")
+    def music_confirm(request: Request, body: MusicTicketRequest):
+        result = confirmation.confirm(request.cookies[COOKIE], body.ticket)
+        logger.info("music.play.confirmed")
+        return {**result, **confirmation.time_state()}
+
+    @app.post("/api/music/cancel")
+    def music_cancel(request: Request, body: MusicTicketRequest):
+        return confirmation.cancel(request.cookies[COOKIE], body.ticket)
+
+    @app.post("/api/music/stop")
+    def music_stop(request: Request):
+        result = confirmation.stop(request.cookies[COOKIE])
+        logger.info("music.stopped")
+        return {**result, **confirmation.time_state()}
+
     @app.get("/api/ppt/state")
     def ppt_state():
         return powerpoint.state()
@@ -563,8 +639,16 @@ def create_app(root: Path = ROOT) -> FastAPI:
 
     @app.post("/api/logout")
     def logout(request: Request):
-        with session_lock:
-            sessions.discard(request.cookies.get(COOKIE, ""))
+        session = request.cookies.get(COOKIE, "")
+        try:
+            with controller._input_lock:
+                try:
+                    touchpad.release_session(session)
+                finally:
+                    with session_lock:
+                        sessions.discard(session)
+        finally:
+            confirmation.cancel(session)
         response = JSONResponse({"ok": True})
         response.delete_cookie(COOKIE)
         return response
@@ -612,8 +696,11 @@ class Runtime:
 
     def pause(self, icon=None, item=None):
         store = self.app.state.store
-        paused = not store.snapshot().web_paused
-        store.update(web_paused=paused)
+        with self.app.state.controller._input_lock:
+            paused = not store.snapshot().web_paused
+            store.update(web_paused=paused)
+            if paused:
+                self.app.state.touchpad.release_all()
         self.app.state.logger.info("web.paused=%s", paused)
         if self.icon:
             self.icon.icon = tray_image(paused)
@@ -664,7 +751,7 @@ class Runtime:
         import pystray
         menu = pystray.Menu(
             pystray.MenuItem("Remote Helper · 电脑遥控", None, enabled=False),
-            pystray.MenuItem(f"端口 {config.port} · /r?p=访问密码", None, enabled=False),
+            pystray.MenuItem(f"端口 {config.port} · /?p=访问密码", None, enabled=False),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem(lambda item: "恢复 Web 管理" if self.app.state.store.snapshot().web_paused else "暂停 Web 管理", self.pause),
             pystray.MenuItem("重启程序", self.restart),

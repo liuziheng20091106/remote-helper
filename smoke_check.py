@@ -5,12 +5,14 @@ import http.cookiejar
 import io
 import json
 from pathlib import Path
+import logging
 import socket
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+from types import SimpleNamespace
 import urllib.error
 import urllib.request
 
@@ -18,7 +20,8 @@ from PIL import Image
 import psutil
 import uvicorn
 
-from main import COOKIE, ROOT, Store, create_app
+from main import COOKIE, ROOT, Runtime, Store, create_app
+from touchpad_check import InputSink
 
 
 def check():
@@ -32,7 +35,7 @@ def check():
         (root / "Fix Tools/ignored.reg").write_text("not a shortcut", encoding="utf-8")
         # Upgrade an existing config without restoring the removed view preference.
         (root / "settings.json").write_text(json.dumps({"settings": {"round_mode": True, "desktop_zoom": 1.5}, "relay": {"enabled": False}}), encoding="utf-8")
-        app = create_app(root)
+        app = create_app(root, music_cookie_path=root / "cookie.txt")
         assert "round_mode" not in json.loads((root / "settings.json").read_text("utf-8"))["settings"]
         sock = socket.socket()
         sock.bind(("127.0.0.1", 0))
@@ -69,11 +72,27 @@ def check():
 
         try:
             assert request("/api/state", authenticated=False)[0] == 401
-            request("/r?p=wrong")
+            assert request("/r")[0] == 404
+            root_status, _, root_headers = request("/")
+            assert root_status == 200 and "Location" not in root_headers
+            request("/?p=wrong")
             assert not list(cookies)
-            request("/r?p=114514")
+            request("/?p=114514")
             assert any(cookie.name == COOKIE and cookie.has_nonstandard_attr("HttpOnly") for cookie in cookies)
             assert request("/api/state")[0] == 200
+            assert request("/api/music/state", authenticated=False)[0] == 401
+            music_status, music_state, _ = request("/api/music/state")
+            assert music_status == 200 and not music_state["credentials_loaded"]
+            assert music_state["confirmation_seconds"] in (5, 50) and "cookies" not in music_state
+            assert request("/api/music/import", {})[0] == 400
+            assert request("/api/music/prepare", {"song_id": True})[0] == 422
+            assert request("/api/music/confirm", {"ticket": "x" * 43})[0] == 400
+            assert request("/api/music/stop", {}, csrf=False)[0] == 403
+            assert request("/music_account.json")[0] == 404
+            empty_pad = {"id": "http-check", "seq": 1, "events": [], "release": True}
+            assert request("/api/desktop/touchpad", empty_pad, csrf=False)[0] == 403
+            assert request("/api/desktop/touchpad", empty_pad)[0] == 200
+            assert request("/api/desktop/touchpad", {**empty_pad, "seq": 2, "events": [{"type": "move", "dx": True, "dy": 0}]})[0] == 400
             chunked = urllib.request.Request(base + "/api/unknown", data=iter([b"x" * 70000, b"y" * 70000]), headers={"Content-Type": "application/json"})
             try:
                 urllib.request.urlopen(chunked, timeout=10)
@@ -165,23 +184,51 @@ def check():
             assert request("/api/desktop/click", {"x": -200000, "y": -200000})[0] == 400
             assert request("/api/desktop/key", {"keys": ["ctrl", "alt", "delete"]})[0] == 400
             assert request("/api/desktop/key", {"keys": ["unsupported-key"]})[0] == 400
-            app.state.store.update(web_paused=True)
-            assert request("/api/state")[0] == 503 and request("/r")[0] == 503
-            app.state.store.update(web_paused=False)
+            sink = InputSink()
+            native_send = app.state.touchpad._send
+            app.state.touchpad._send = sink.send
+            runtime = SimpleNamespace(app=app, icon=None)
+            input_arrived = threading.Event()
+
+            class InputArrival(logging.Handler):
+                def emit(self, record):
+                    if record.getMessage().endswith("action=POST /api/desktop/touchpad"):
+                        input_arrived.set()
+
+            arrival = InputArrival()
+            app.state.logger.addHandler(arrival)
+            pending_input = []
+            try:
+                with app.state.controller._input_lock:
+                    waiting = threading.Thread(target=lambda: pending_input.append(request("/api/desktop/touchpad", {"id": "paused", "seq": 1, "events": [{"type": "button", "button": "left", "down": True}]})), daemon=True)
+                    waiting.start()
+                    assert input_arrived.wait(timeout=5), "Touchpad request did not pass authentication before pause"
+                    Runtime.pause(runtime)
+                    assert request("/api/state")[0] == 503 and request("/")[0] == 503
+                waiting.join(timeout=5)
+                assert pending_input and pending_input[0][0] == 503
+                assert not sink.buttons, "An already authenticated batch must not press after pause"
+            finally:
+                app.state.logger.removeHandler(arrival)
+                Runtime.pause(runtime)
             assert request("/api/state")[0] == 200
             _, logs, _ = request("/api/logs")
             assert any("shell.finish" in line for line in logs["lines"])
             old_cookie = next(cookie for cookie in cookies if cookie.name == COOKIE)
             other_cookies = http.cookiejar.CookieJar()
             other_client = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(other_cookies))
-            other_client.open(base + "/r?p=114514").close()
+            other_client.open(base + "/?p=114514").close()
             assert next(cookie.value for cookie in other_cookies if cookie.name == COOKIE) != old_cookie.value
+            assert request("/api/desktop/touchpad", {"id": "logout", "seq": 1, "events": [{"type": "button", "button": "left", "down": True}]})[0] == 200
+            assert sink.buttons == {"left"}
             assert request("/api/logout", {})[0] == 200
+            assert not sink.buttons, "Logout returned before its native button was released"
+            app.state.touchpad._send = native_send
             assert request("/api/state")[0] == 401
             cookies.set_cookie(old_cookie)
             assert request("/api/state")[0] == 401, "Logged-out tokens must be revoked server-side"
             assert other_client.open(base + "/api/state").status == 200
-            request("/r?p=114514")
+            request("/?p=114514")
             marker = root / "active-shell.pid"
             code = f"from pathlib import Path; import os,time; Path({str(marker)!r}).write_text(str(os.getpid())); time.sleep(60)"
             command = subprocess.list2cmdline([sys.executable, "-c", code])

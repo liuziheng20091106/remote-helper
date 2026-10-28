@@ -128,7 +128,7 @@ def create_app(token=None, public_url=None):
     async def forward(request: Request, path: str):
         nonlocal active
         decoded_path = request.url.path
-        if not (decoded_path in {"/", "/r", "/icon.svg"} or decoded_path.startswith(("/static/", "/api/"))) or "\\" in decoded_path or "//" in decoded_path or any(part in {".", ".."} for part in decoded_path.split("/")):
+        if not (decoded_path in {"/", "/icon.svg"} or decoded_path.startswith(("/static/", "/api/"))) or "\\" in decoded_path or "//" in decoded_path or any(part in {".", ".."} for part in decoded_path.split("/")):
             return Response(status_code=404)
         if request.method not in {"GET", "POST", "HEAD"}:
             return Response(status_code=405, headers={"Allow": "GET, POST, HEAD"})

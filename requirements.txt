@@ -10,3 +10,4 @@ comtypes==1.4.17
 pystray==0.19.5
 httpx==0.28.1
 websockets==16.0
+pycryptodomex==3.23.0

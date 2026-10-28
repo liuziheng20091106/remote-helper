@@ -13,3 +13,7 @@ dist/
 *.ppsx
 .ppt-helper.json
 .ppt-helper.*.tmp
+music_account.json
+music_account.json*.tmp
+cookie.txt
+music_cache/

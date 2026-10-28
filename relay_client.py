@@ -43,7 +43,7 @@ def allowed_path(path: str) -> bool:
     decoded = unquote(parsed.path)
     if parsed.scheme or parsed.netloc or parsed.fragment or "\\" in decoded or any(part in {".", ".."} for part in decoded.split("/")):
         return False
-    return decoded in {"/", "/r", "/icon.svg"} or decoded.startswith(("/api/", "/static/"))
+    return decoded in {"/", "/icon.svg"} or decoded.startswith(("/api/", "/static/"))
 
 
 class RelayClient:

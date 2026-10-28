@@ -80,7 +80,7 @@ async def check():
         remote.port = relay_port
         remote.thread = threading.Thread(target=remote.server.run, kwargs={"sockets": [remote.socket]}, daemon=True)
         Store(root).update(relay={"enabled": False, "url": remote_url, "token": token})
-        pc_app = create_app(root)
+        pc_app = create_app(root, music_cookie_path=root / "cookie.txt")
         pc = Server(pc_app)
         lan_url = f"http://127.0.0.1:{pc.port}"
         remote.start()
@@ -91,7 +91,9 @@ async def check():
                 assert (await browser.get("/_relay/health")).json() == {"online": False}
                 assert (await browser.get("/api/state")).status_code == 503
                 assert (await lan.get("/api/state")).status_code == 401
-                await lan.get("/r?p=114514")
+                assert (await lan.get("/r")).status_code == 404
+                assert (await lan.get("/")).status_code == 200
+                await lan.get("/?p=114514")
                 assert (await lan.get("/api/state")).status_code == 200
                 configured = await lan.post("/api/relay", json={"enabled": True}, headers=header)
                 assert configured.status_code == 200 and "token" not in configured.json()
@@ -110,12 +112,20 @@ async def check():
                         from websockets.exceptions import ConnectionClosed
                         assert isinstance(error, (InvalidStatus, ConnectionClosed)), type(error)
                 assert (await browser.get("/api/state")).status_code == 401
-                login = await browser.get("/r?p=114514")
+                assert (await browser.get("/r")).status_code == 404
+                login = await browser.get("/?p=114514")
+                assert "location" not in login.headers
                 assert login.status_code == 200
                 cookie = next(item for item in browser.cookies.jar if item.name == "remote_helper_session")
                 assert cookie.secure and cookie.has_nonstandard_attr("HttpOnly")
                 state = (await browser.get("/api/state")).json()
                 assert state["hostname"] and "token" not in state["relay"]
+                music_state = await browser.get("/api/music/state")
+                assert music_state.status_code == 200 and not music_state.json()["credentials_loaded"]
+                assert music_state.json()["confirmation_seconds"] in (5, 50)
+                assert (await browser.post("/api/music/confirm", json={"ticket": "x" * 43}, headers={**header, "Origin": remote_url})).status_code == 400
+                assert (await browser.post("/api/desktop/touchpad", json={"id": "relay-check", "seq": 1, "events": [], "release": True}, headers={**header, "Origin": remote_url})).status_code == 200
+                assert (await browser.get("/music_account.json")).status_code == 404
                 ppt = await browser.get("/api/ppt/state")
                 assert ppt.status_code == 200 and isinstance(ppt.json()["available"], bool)
                 assert type(ppt.json()["module_connected"]) is bool
@@ -155,7 +165,7 @@ async def check():
                 browser.cookies.set("remote_helper_session", logged_out_token)
                 assert (await browser.get("/api/state")).status_code == 401
                 browser.cookies.clear()
-                await browser.get("/r?p=114514")
+                await browser.get("/?p=114514")
                 marker = root / "reconnect-command.started"
                 code = f"from pathlib import Path; import time; Path({str(marker)!r}).write_text('started'); time.sleep(10)"
                 pending_command = asyncio.create_task(browser.post("/api/shell", json={"command": subprocess.list2cmdline([str(ROOT / '.venv/Scripts/python.exe'), '-c', code]), "timeout": 30}, headers=mutation_headers))

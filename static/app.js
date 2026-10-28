@@ -48,6 +48,8 @@ function notify(message) {
 function showAuth() {
   authenticated = false;
   stopLive(true);
+  if (typeof stopTouchpad === 'function') stopTouchpad();
+  if (typeof resetMusic === 'function') resetMusic();
   if (typeof resetPpt === 'function') resetPpt('需要登录后刷新 PowerPoint。');
   if (frameURL) { URL.revokeObjectURL(frameURL); frameURL = null; }
   frameGeometry = null;
@@ -145,7 +147,7 @@ function applyRelay(relay) {
   $('relay-url').value = relay.url;
   $('relay-status').textContent = `${relay.connected ? '已连接' : relay.enabled ? '未连接' : '已关闭'} · ${relay.status} · ${relay.token_configured ? '令牌已配置' : '未配置令牌'}`;
   const url = new URL(relay.url);
-  url.pathname = '/r';
+  url.pathname = '/';
   url.search = '';
   url.hash = '';
   $('relay-link').href = url.href;
@@ -178,6 +180,8 @@ async function loadState() {
 function selectTab(tab) {
   if (!document.querySelector(`[data-tab="${tab}"]`)) return;
   if (activeTab === 'desktop' && tab !== 'desktop') stopLive(true);
+  if (activeTab !== tab && typeof stopTouchpad === 'function') stopTouchpad();
+  if (activeTab !== tab && typeof resetMusic === 'function') resetMusic();
   activeTab = tab;
   for (const panel of document.querySelectorAll('.panel')) {
     const selected = panel.id === `panel-${tab}`;
@@ -202,6 +206,7 @@ function selectTab(tab) {
     else requestAnimationFrame(sizeDesktopImage);
   }
   if (tab === 'ppt') void action(null, refreshPpt);
+  if (tab === 'music') void action(null, loadMusicState);
   if (tab === 'settings' && !logsLoaded) void action($('logs-refresh'), loadLogs);
   // Process enumeration is deliberately tied only to the Refresh button.
 }
@@ -526,7 +531,7 @@ $('auth-dialog').addEventListener('cancel', event => event.preventDefault());
 onSubmit('auth-form', async () => {
   const password = $('auth-password').value;
   $('auth-password').value = '';
-  const target = new URL('/r', window.location.origin);
+  const target = new URL('/', window.location.origin);
   target.searchParams.set('p', password);
   window.location.replace(target.href);
 });
@@ -655,6 +660,8 @@ onSubmit('relay-form', async () => {
 onClick('logs-refresh', loadLogs);
 onClick('logout', async () => {
   if (!await ask('退出远程助手', '退出当前浏览器的会话？重新连接需要访问密码。', '退出登录')) return;
+  stopTouchpad();
+  resetMusic();
   await api('/api/logout', {});
   showAuth();
 });

@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/app.js" defer></script>
   <script src="/static/ppt.js" defer></script>
+  <script src="/static/touchpad.js" defer></script>
+  <script src="/static/music.js" defer></script>
 </head>
 <body>
   <div class="app-shell">
@@ -20,6 +22,8 @@
       <button class="nav-item" data-tab="tools">工具</button>
       <button class="nav-item" data-tab="processes">进程</button>
       <button class="nav-item" data-tab="desktop">桌面</button>
+      <button class="nav-item" data-tab="touchpad">触控板</button>
+      <button class="nav-item" data-tab="music">点歌</button>
       <button class="nav-item" data-tab="ppt">PPT</button>
       <button class="nav-item" data-tab="settings">设置</button>
     </nav>
@@ -51,6 +55,21 @@
         <article class="card"><div class="card-heading"><h2>鼠标</h2><label class="check-label"><input id="click-enabled" type="checkbox">启用画面点击</label></div><label>点击方式<select id="click-kind"><option value="left">左键单击</option><option value="right">右键单击</option><option value="double">左键双击</option><option value="middle">中键单击</option></select></label><p id="click-status" class="muted" role="status">仅选取坐标</p><form id="coordinate-form"><div class="form-row"><label>屏幕 X<input id="coordinate-x" type="number" step="1" value="0" required inputmode="numeric"></label><label>屏幕 Y<input id="coordinate-y" type="number" step="1" value="0" required inputmode="numeric"></label></div><button type="submit" class="secondary">发送坐标点击</button></form></article>
         <div class="two-column"><article class="card"><h2>按键</h2><div id="key-buttons" class="key-buttons"></div><form id="key-form"><label for="key-chord">组合键（+ 分隔）</label><input id="key-chord" list="key-suggestions" placeholder="ctrl+shift+esc" required autocomplete="off"><datalist id="key-suggestions"></datalist><button type="submit" class="secondary">发送按键</button></form></article><article class="card"><form id="text-form"><label for="desktop-text">输入文字</label><textarea id="desktop-text" rows="3" required></textarea><button type="submit" class="secondary">发送文字</button></form><form id="scroll-form"><label for="scroll-amount">滚轮格数（正数向上）</label><input id="scroll-amount" type="number" min="-100" max="100" step="1" value="-3" required inputmode="numeric"><button type="submit" class="secondary">发送滚动</button></form></article></div>
       </section>
+      <section id="panel-touchpad" class="panel" aria-labelledby="touchpad-title" hidden>
+        <h1 id="touchpad-title">触控板</h1>
+        <article class="card">
+          <div class="zoom-row"><label for="touchpad-sensitivity">灵敏度</label><input id="touchpad-sensitivity" type="range" min="0.5" max="3" step="0.1" value="1.5"><output id="touchpad-sensitivity-value" for="touchpad-sensitivity">1.5×</output></div>
+          <div id="touchpad-surface" class="touchpad-surface" tabindex="0" aria-label="远程触控板：单指移动或轻点，双指滚动或缩放，三指切换窗口"><span class="touchpad-hint" aria-hidden="true">单指移动 · 双指滚动 · 捏合缩放</span><span id="touchpad-cursor" class="touchpad-cursor" aria-hidden="true"></span><div id="touchpad-fingers" aria-hidden="true"></div></div>
+          <div class="touchpad-buttons"><button data-pad-button="left">左键</button><button data-pad-button="middle">中键</button><button data-pad-button="right">右键</button><button id="touchpad-lock" aria-pressed="false">左键锁定</button></div>
+          <p id="touchpad-status" class="muted" role="status">就绪</p>
+          <details><summary>手势</summary><p class="muted">单指轻点单击，双击连点；双击后按住或长按拖动。双指轻点右键、滑动滚动、捏合缩放。三指上滑任务视图，下滑桌面，左滑上个应用，右滑下个应用。按住下方鼠标键可拖动。</p></details>
+        </article>
+      </section>
+      <section id="panel-music" class="panel" aria-labelledby="music-title" hidden>
+        <div class="section-heading"><h1 id="music-title">点歌</h1><button id="music-refresh" class="secondary">刷新</button></div>
+        <article class="card"><p id="music-account" class="muted">尚未读取账号</p><div class="item-actions"><button id="music-import" class="secondary">导入下载目录 cookie.txt</button><button id="music-stop" class="secondary">停止播放</button></div><p id="music-player" role="status">尚未读取播放状态</p><p id="music-error" class="music-error" role="status" hidden></p></article>
+        <article class="card"><form id="music-search-form" class="music-search"><label class="sr-only" for="music-query">搜索歌曲</label><input id="music-query" type="search" maxlength="200" placeholder="歌曲、歌手" required autocomplete="off"><button type="submit" class="primary">搜索</button></form><p id="music-results-meta" class="muted" role="status">搜索后点歌</p><div id="music-results" class="item-list"></div><div class="music-pagination"><button id="music-previous" disabled>上一页</button><span id="music-page" class="muted">—</span><button id="music-next" disabled>下一页</button></div></article>
+      </section>
       <section id="panel-ppt" class="panel" aria-labelledby="ppt-title" hidden>
         <div class="section-heading"><h1 id="ppt-title">PPT</h1><button id="ppt-refresh" class="secondary">刷新状态 / 图片</button></div>
         <article class="card">
@@ -68,7 +87,7 @@
       <section id="panel-settings" class="panel" aria-labelledby="settings-title" hidden>
         <h1 id="settings-title">设置</h1>
         <div class="two-column"><article class="card"><h2>截图设置</h2><form id="settings-form"><label>连续画面间隔（秒）<input id="setting-interval" type="number" min="0.5" max="10" step="0.5" value="2" required inputmode="decimal"></label><label>JPEG 质量（30–90）<input id="setting-quality" type="number" min="30" max="90" value="65" required inputmode="numeric"></label><label>截图宽度（320–2560）<input id="setting-width" type="number" min="320" max="2560" value="1280" required inputmode="numeric"></label><button type="submit" class="primary">保存</button></form></article><article class="card"><h2>连接</h2><p id="session-state" class="muted"></p><div class="item-actions"><button id="state-refresh" class="secondary">刷新连接</button><button id="logout" class="danger">退出登录</button></div></article></div>
-        <article class="card"><h2>远程中继</h2><form id="relay-form"><label class="check-label"><input id="relay-enabled" type="checkbox">启用中继</label><label>远程地址<input id="relay-url" type="url" value="https://super.tkcloud.online:444" required autocomplete="url"></label><label>中继令牌<input id="relay-token" type="password" placeholder="留空保留" autocomplete="new-password" spellcheck="false"></label><p id="relay-status" class="muted" role="status">尚未读取</p><a id="relay-link" href="https://super.tkcloud.online:444/r" target="_blank" rel="noopener noreferrer">远程入口</a><button type="submit" class="primary">保存</button></form></article>
+        <article class="card"><h2>远程中继</h2><form id="relay-form"><label class="check-label"><input id="relay-enabled" type="checkbox">启用中继</label><label>远程地址<input id="relay-url" type="url" value="https://super.tkcloud.online:444" required autocomplete="url"></label><label>中继令牌<input id="relay-token" type="password" placeholder="留空保留" autocomplete="new-password" spellcheck="false"></label><p id="relay-status" class="muted" role="status">尚未读取</p><a id="relay-link" href="https://super.tkcloud.online:444/" target="_blank" rel="noopener noreferrer">远程入口</a><button type="submit" class="primary">保存</button></form></article>
         <article class="card"><div class="card-heading"><h2>操作日志</h2><button id="logs-refresh" class="secondary">刷新</button></div><pre id="logs-output" tabindex="0" aria-label="服务日志"></pre></article>
       </section>
     </main>
@@ -77,6 +96,7 @@
   <dialog id="command-dialog" aria-labelledby="command-dialog-title"><form id="command-form"><div class="card-heading"><h2 id="command-dialog-title">新建快捷命令</h2><button type="button" id="command-close" class="quiet" aria-label="关闭">×</button></div><input id="command-id" type="hidden"><label>名称<input id="command-name" maxlength="100" required autocomplete="off"></label><label>命令<textarea id="command-text" rows="4" required spellcheck="false"></textarea></label><div class="form-row"><label>环境<select id="command-shell"><option value="cmd">CMD</option><option value="powershell">PowerShell</option></select></label><label>超时（秒）<input id="command-timeout" type="number" min="1" max="3600" value="60" required></label></div><button type="submit" class="primary">保存</button></form></dialog>
   <dialog id="confirm-dialog" aria-labelledby="confirm-title"><form method="dialog"><h2 id="confirm-title">确认操作</h2><p id="confirm-message"></p><div class="dialog-actions"><button value="cancel" class="secondary">取消</button><button value="confirm" class="danger" id="confirm-action">确认</button></div></form></dialog>
   <dialog id="ppt-dialog" aria-labelledby="ppt-preview-title"><div class="card-heading"><h2 id="ppt-preview-title">幻灯片预览</h2><button id="ppt-preview-close" type="button" aria-label="关闭预览">×</button></div><p id="ppt-preview-status" class="muted" role="status"></p><img id="ppt-preview-image" alt="" hidden><div class="ppt-controls"><button id="ppt-preview-prev">上一张预览</button><button id="ppt-preview-next">下一张预览</button><button id="ppt-preview-goto" class="primary">跳转到电脑</button><button id="ppt-preview-pin">固定</button></div></dialog>
+  <dialog id="music-dialog" aria-labelledby="music-confirm-title"><h2 id="music-confirm-title">确认点歌</h2><p id="music-confirm-song"></p><p id="music-confirm-clock" class="muted"></p><p id="music-countdown" role="status" aria-live="polite">等待服务器确认…</p><p id="music-confirm-error" class="music-error" role="status" hidden></p><div class="dialog-actions"><button id="music-cancel" class="secondary">取消</button><button id="music-confirm" class="primary" disabled>确认播放</button></div></dialog>
   <dialog id="auth-dialog" aria-labelledby="auth-title"><form id="auth-form"><h2 id="auth-title">连接电脑</h2><label>访问密码<input id="auth-password" type="password" required autocomplete="current-password"></label><button class="primary" type="submit">连接</button></form></dialog>
   <noscript><p class="noscript">请启用 JavaScript。</p></noscript>
 </body>
