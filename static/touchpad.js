@@ -28,10 +28,32 @@ $('touchpad-sensitivity').value = padSensitivity;
 $('touchpad-sensitivity-value').textContent = `${padSensitivity}×`;
 
 function padEnabled() {
-  return authenticated && activeTab === 'touchpad' && !document.hidden && navigator.onLine && !padRelease && !padReleasing;
+  return authenticated && activeTab === 'touchpad' && !document.hidden && !padRelease && !padReleasing;
 }
 
 function padStatus(message) { $('touchpad-status').textContent = message; }
+
+function padBindInput(target, handlers) {
+  if (typeof window.PointerEvent === 'function') {
+    for (const [name, handler] of Object.entries(handlers)) target.addEventListener(`pointer${name}`, handler);
+    target.addEventListener('pointercancel', () => stopTouchpad());
+    return;
+  }
+  for (const [name, kind] of [['touchstart', 'down'], ['touchmove', 'move'], ['touchend', 'up']]) {
+    const handler = handlers[kind];
+    if (!handler) continue;
+    target.addEventListener(name, event => {
+      if (kind === 'down' && !padEnabled()) return;
+      event.preventDefault();
+      for (const touch of Array.from(event.changedTouches)) handler({
+        pointerId: touch.identifier, pointerType: 'touch', button: 0,
+        clientX: touch.clientX, clientY: touch.clientY,
+        preventDefault: () => event.preventDefault()
+      });
+    }, {passive: false});
+  }
+  target.addEventListener('touchcancel', () => stopTouchpad(), {passive: false});
+}
 
 function padSchedule(delay = 16) {
   if (!padFrame && !padInFlight) padFrame = window.setTimeout(() => { padFrame = 0; void padFlush(); }, delay);
@@ -168,12 +190,12 @@ function padBeginDrag() {
   padStatus('拖动中');
 }
 
-pad.addEventListener('pointerdown', event => {
+function padPointerDown(event) {
   if (!padEnabled()) return;
   const first = padPointers.values().next().value;
   if (first && Boolean(first.mouse) !== (event.pointerType === 'mouse')) return;
   event.preventDefault();
-  pad.setPointerCapture(event.pointerId);
+  if (typeof window.PointerEvent === 'function') pad.setPointerCapture?.(event.pointerId);
   if (event.pointerType === 'mouse') {
     padPointers.set(event.pointerId, {x: event.clientX, y: event.clientY, mouse: true});
     const button = ['left', 'middle', 'right'][event.button];
@@ -201,9 +223,9 @@ pad.addEventListener('pointerdown', event => {
   padGesture.origin = padGesture.geometry;
   if (padPointers.size === 1) padLongPress = window.setTimeout(padBeginDrag, padGesture.double ? 180 : 480);
   padDrawFingers();
-});
+}
 
-pad.addEventListener('pointermove', event => {
+function padPointerMove(event) {
   const point = padPointers.get(event.pointerId);
   if (!point || !padEnabled()) return;
   event.preventDefault();
@@ -243,7 +265,7 @@ pad.addEventListener('pointermove', event => {
     gesture.geometry = next;
   }
   padDrawFingers();
-});
+}
 
 function padPointerUp(event) {
   const point = padPointers.get(event.pointerId);
@@ -289,9 +311,8 @@ function padPointerUp(event) {
   padGesture = null;
 }
 
-pad.addEventListener('pointerup', padPointerUp);
-pad.addEventListener('pointercancel', () => stopTouchpad());
-pad.addEventListener('lostpointercapture', event => { if (padPointers.has(event.pointerId)) stopTouchpad(); });
+padBindInput(pad, {down: padPointerDown, move: padPointerMove, up: padPointerUp});
+if (typeof window.PointerEvent === 'function') pad.addEventListener('lostpointercapture', event => { if (padPointers.has(event.pointerId)) stopTouchpad(); });
 pad.addEventListener('contextmenu', event => event.preventDefault());
 pad.addEventListener('wheel', event => {
   if (!padEnabled()) return;
@@ -303,15 +324,16 @@ pad.addEventListener('wheel', event => {
 
 for (const button of document.querySelectorAll('[data-pad-button]')) {
   const source = `button-${button.dataset.padButton}`;
-  button.addEventListener('pointerdown', event => {
-    if (!padEnabled() || event.button !== 0) return;
-    event.preventDefault();
-    button.setPointerCapture(event.pointerId);
-    padHold(source, button.dataset.padButton, true);
+  padBindInput(button, {
+    down: event => {
+      if (!padEnabled() || event.button !== 0) return;
+      event.preventDefault();
+      if (typeof window.PointerEvent === 'function') button.setPointerCapture?.(event.pointerId);
+      padHold(source, button.dataset.padButton, true);
+    },
+    up: () => padHold(source, button.dataset.padButton, false)
   });
-  button.addEventListener('pointerup', () => padHold(source, button.dataset.padButton, false));
-  button.addEventListener('pointercancel', () => stopTouchpad());
-  button.addEventListener('lostpointercapture', () => { if (padHolds.has(source)) stopTouchpad(); });
+  if (typeof window.PointerEvent === 'function') button.addEventListener('lostpointercapture', () => { if (padHolds.has(source)) stopTouchpad(); });
   button.addEventListener('contextmenu', event => event.preventDefault());
   button.addEventListener('click', event => {
     if (event.detail === 0 && padEnabled()) padEnqueue({type: 'click', button: button.dataset.padButton, clicks: 1});

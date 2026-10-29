@@ -33,6 +33,15 @@ _GESTURES = {
 }
 
 
+class _InputDispatchError(RuntimeError):
+    def __init__(self, sent: int, total: int, error: int):
+        self.sent = sent
+        super().__init__(
+            f"Windows 未能完成触控板输入（已发送 {sent}/{total}，错误 {error}）。"
+            "请保持程序所在的 Windows 桌面已登录、解锁且会话连接；控制管理员窗口时需以管理员身份运行。"
+        )
+
+
 @dataclass
 class _Owner:
     last_seq: int | None = None
@@ -140,10 +149,7 @@ class TouchpadController:
         sent = _user32.SendInput(len(inputs), array, ctypes.sizeof(_Input))
         if sent != len(inputs):
             error = ctypes.get_last_error()
-            raise RuntimeError(
-                f"Windows inserted {sent} of {len(inputs)} touchpad input events "
-                f"(error {error}); input may be blocked by a higher-privilege window."
-            )
+            raise _InputDispatchError(sent, len(inputs), error)
 
     @classmethod
     def _release_inputs(cls, buttons: set[str]) -> list[_Input]:
@@ -256,19 +262,22 @@ class TouchpadController:
                 state.last_activity = time.monotonic()
                 try:
                     self._send(inputs)
-                except Exception:
-                    # SendInput may have inserted a prefix, leaving a button or
-                    # modifier physically down; release every control used by batch.
-                    buttons = set(held)
-                    keys = set()
-                    for event in checked:
-                        if event[0] in ("button", "click"):
-                            buttons.add(event[1])
-                        elif event[0] == "gesture":
-                            keys.update(_GESTURES[event[1]])
-                        elif event[0] == "zoom" and event[1]:
-                            keys.add("ctrl")
-                    self._release_on_error_locked(owner, buttons, keys)
+                except Exception as error:
+                    if isinstance(error, _InputDispatchError) and error.sent == 0:
+                        self._release_on_error_locked(owner)
+                    else:
+                        # SendInput may have inserted a prefix, leaving a button or
+                        # modifier physically down; release every control used by batch.
+                        buttons = set(held)
+                        keys = set()
+                        for event in checked:
+                            if event[0] in ("button", "click"):
+                                buttons.add(event[1])
+                            elif event[0] == "gesture":
+                                keys.update(_GESTURES[event[1]])
+                            elif event[0] == "zoom" and event[1]:
+                                keys.add("ctrl")
+                        self._release_on_error_locked(owner, buttons, keys)
                     raise
                 state.held = held
                 state.last_seq = seq

@@ -3,7 +3,7 @@ from threading import RLock
 from types import SimpleNamespace
 import time
 
-from touchpad_control import TouchpadController
+from touchpad_control import TouchpadController, _InputDispatchError
 
 
 class InputSink:
@@ -12,8 +12,11 @@ class InputSink:
         self.keys = set()
         self.moves = 0
         self.failures = 0
+        self.blocked = False
 
     def send(self, inputs):
+        if inputs and self.blocked:
+            raise _InputDispatchError(0, len(inputs), 5)
         fail = self.failures > 0 and bool(inputs)
         if fail:
             self.failures -= 1
@@ -49,8 +52,19 @@ def check():
     sink = InputSink()
     pad._send = sink.send
     try:
+        sink.blocked = True
+        rejected(lambda: pad.apply("zero-send", 1, [{"type": "button", "button": "left", "down": True}]))
+        assert pad._active_owner is None and not pad._owners["zero-send"].held
+        sink.blocked = False
+        pad.apply("after-zero-send", 1, [{"type": "click", "button": "left", "clicks": 1}])
+        assert not sink.buttons, "A zero-event SendInput failure must not strand drag ownership"
         pad.apply("A", 1, [{"type": "button", "button": "left", "down": True}])
         assert sink.buttons == {"left"}
+        sink.blocked = True
+        rejected(lambda: pad.apply("A", 2, [{"type": "move", "dx": 5, "dy": 0}]))
+        assert sink.buttons == {"left"} and pad._active_owner == "A"
+        assert pad._owners["A"].held == {"left"}, "Rejected input must preserve an earlier held button"
+        sink.blocked = False
         rejected(lambda: pad.apply("B", 1, [{"type": "click", "button": "right", "clicks": 1}]))
         assert sink.buttons == {"left"}
         deadline = time.monotonic() + 4.5
@@ -58,25 +72,25 @@ def check():
             assert time.monotonic() < deadline, "Disconnected drag was not released"
             time.sleep(0.02)
         # Even after the lease expires, a delayed duplicate must not press again.
-        pad.apply("A", 1, [{"type": "button", "button": "left", "down": True}])
+        pad.apply("A", 2, [{"type": "button", "button": "left", "down": True}])
         assert not sink.buttons
         before = sink.moves
-        rejected(lambda: pad.apply("A", 2, [{"type": "move", "dx": 5, "dy": 0}, {"type": "move", "dx": True, "dy": 0}]))
+        rejected(lambda: pad.apply("A", 3, [{"type": "move", "dx": 5, "dy": 0}, {"type": "move", "dx": True, "dy": 0}]))
         assert sink.moves == before, "A malformed batch must not partly move the pointer"
         sink.failures = 1
-        rejected(lambda: pad.apply("A", 3, [{"type": "click", "button": "left", "clicks": 1}]))
+        rejected(lambda: pad.apply("A", 4, [{"type": "click", "button": "left", "clicks": 1}]))
         assert not sink.buttons, "Partly inserted click must receive button-up"
-        pad.apply("A", 3, [{"type": "click", "button": "left", "clicks": 1}])
+        pad.apply("A", 4, [{"type": "click", "button": "left", "clicks": 1}])
         assert not sink.buttons, "A failed sequence must never be replayed"
         # Ctrl-down succeeds, then immediate cleanup fails; watchdog must retry it.
         sink.failures = 3
-        rejected(lambda: pad.apply("A", 4, [{"type": "zoom", "steps": 1}]))
+        rejected(lambda: pad.apply("A", 5, [{"type": "zoom", "steps": 1}]))
         deadline = time.monotonic() + 4.5
         while sink.keys:
             assert time.monotonic() < deadline, "Modifier-up failure was not retried"
             time.sleep(0.02)
         assert not sink.keys
-        pad.apply("A", 5, [{"type": "button", "button": "right", "down": True}])
+        pad.apply("A", 6, [{"type": "button", "button": "right", "down": True}])
         pad.release_all()
         assert not sink.buttons and not sink.keys
         pad.apply("session-A:pad", 1, [{"type": "button", "button": "left", "down": True}])
@@ -86,8 +100,8 @@ def check():
         assert not sink.buttons, "Logout must immediately release its own drag"
     finally:
         pad.close()
-    rejected(lambda: pad.apply("A", 6, []))
-    print("PASS: drag isolation/expiry, delayed duplicate suppression, atomic validation, partial mouse/key recovery, pause and shutdown. Win32 sink simulated; no host click injected.")
+    rejected(lambda: pad.apply("A", 7, []))
+    print("PASS: zero-input rejection without phantom ownership, earlier held-button recovery, drag isolation/expiry, duplicate suppression, atomic validation, partial mouse/key recovery, pause and shutdown. Win32 sink simulated; no host click injected.")
 
 
 if __name__ == "__main__":
