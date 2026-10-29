@@ -473,7 +473,7 @@ function snapshot() {
       $('desktop-empty').hidden = true;
       sizeDesktopImage();
       if (previousURL) URL.revokeObjectURL(previousURL);
-      $('snapshot-status').textContent = `${new Date().toLocaleTimeString('zh-CN')} · ${geometry.width}×${geometry.height} · 原点 (${geometry.left}, ${geometry.top})${live ? ' · 连续画面' : ''}`;
+      $('snapshot-status').textContent = `${new Date().toLocaleTimeString('zh-CN')}${live ? ' · 连续画面' : ''}`;
     } catch (error) {
       if (error.name !== 'AbortError') $('snapshot-status').textContent = `截取失败：${error.message}`;
       else if (generation !== snapshotGeneration) $('snapshot-status').textContent = '截图已停止';
